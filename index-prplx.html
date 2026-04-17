@@ -316,7 +316,7 @@
 
 <script>
 // ─────────────────────────────────────────────
-//  MALBEC — Prototype v1.0
+//  MALBEC — v1.1
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
 
@@ -407,6 +407,10 @@ function sfxBoss() {
 }
 function sfxBossDeath() {
   for (let i=0;i<6;i++) setTimeout(()=>sfx(100-i*10,0.3,'square',0.15),i*120);
+}
+function sfxBeam() {
+  sfx(80, 2.5, 'sine', 0.06);
+  setTimeout(()=>sfx(160, 1.5, 'sine', 0.04), 400);
 }
 function sfxDimEnter() {
   sfx(1200, 0.3, 'sine', 0.15);
@@ -547,6 +551,9 @@ function resetGame() {
     // Level announce
     announceAlpha: 0,
     announceText: '',
+    // World transition progressive reveal (-1 = idle, 0-1 = revealing)
+    worldReveal: -1,
+    cinematic: null,
   };
 
   const p = GS.player;
@@ -677,15 +684,23 @@ function updateHUD() {
   // Health
   document.getElementById('health-bar-fill').style.width = clamp(p.hp,0,100)+'%';
   document.getElementById('hp-pct').textContent = Math.ceil(p.hp)+'%';
-  // Hearts
+  // Hearts — always 11 slots, prestige cycles
   const hr = document.getElementById('hearts-row');
   hr.innerHTML = '';
-  const display = Math.min(p.hearts, 11);
-  for (let i=0; i<display; i++) {
+  const safeHearts = Math.max(1, p.hearts);
+  const cyclePos = ((safeHearts - 1) % 11) + 1;
+  const prestige = Math.floor((safeHearts - 1) / 11);
+  for (let i = 0; i < 11; i++) {
     const h = document.createElement('span');
-    h.className = 'heart' + (i === 0 ? ' active' : (i < p.hearts ? ' active' : ''));
+    h.className = 'heart' + (i < cyclePos ? ' active' : '');
     h.textContent = '♥';
     hr.appendChild(h);
+  }
+  if (prestige > 0) {
+    const badge = document.createElement('span');
+    badge.style.cssText = 'font-size:9px;font-family:Share Tech Mono,monospace;color:rgba(255,200,80,0.7);margin-left:5px;letter-spacing:1px;';
+    badge.textContent = '\u00d7' + prestige;
+    hr.appendChild(badge);
   }
   // Score
   document.getElementById('score-val').textContent = GS.score.toLocaleString();
@@ -1132,19 +1147,164 @@ function updateBoss(dt) {
 }
 
 function triggerBossDeath() {
-  GS.state = 'transition';
-  GS.transitionAlpha = 0;
   GS.score += 2000;
-  sfxHeart();
-  // Next level
-  setTimeout(() => {
-    GS.level++;
-    generateLevel();
-    GS.state = 'playing';
-    GS.transitionAlpha = 0;
-    GS.flashAlpha = 1;
-    updateHUD();
-  }, 3000);
+  sfxBossDeath();
+  GS.state = 'boss_cinematic';
+  const boss = GS.boss;
+  GS.cinematic = {
+    phase: 'head_fall',
+    timer: 0,
+    headX: boss ? (boss.x - GS.cameraX + boss.w/2 - 20) : canvas.width/2 - 20,
+    headY: boss ? boss.y : FLOOR_Y() - 80,
+    headVy: -180,
+    blackAlpha: 0,
+    beamAlpha: 0,
+    beamH: 0,
+    shipVisible: Math.random() < 0.003,
+    settled: false,
+  };
+}
+
+function updateCinematic(dt) {
+  const c = GS.cinematic;
+  if (!c) return;
+  c.timer += dt;
+  const fw = FLOOR_Y();
+
+  if (c.phase === 'head_fall') {
+    c.headVy += 700 * dt;
+    c.headY += c.headVy * dt;
+    if (c.headY + 36 >= fw) {
+      c.headY = fw - 36;
+      c.headVy = 0;
+      c.settled = true;
+    }
+    if (c.settled && c.timer > 1.6) {
+      c.phase = 'blackout';
+      c.timer = 0;
+    }
+  } else if (c.phase === 'blackout') {
+    c.blackAlpha = Math.min(1, c.timer / 0.9);
+    if (c.timer > 1.1) {
+      c.phase = 'beam_down';
+      c.timer = 0;
+      sfxBeam();
+    }
+  } else if (c.phase === 'beam_down') {
+    c.beamH = Math.min(fw, (c.timer / 1.1) * fw);
+    c.beamAlpha = Math.min(1, c.timer * 1.8);
+    if (c.timer > 1.3) {
+      c.phase = 'head_ascend';
+      c.timer = 0;
+      c.headVy = -120;
+    }
+  } else if (c.phase === 'head_ascend') {
+    c.headVy -= 280 * dt;
+    c.headY += c.headVy * dt;
+    c.beamAlpha = Math.max(0, 1 - c.timer * 0.6);
+    if (c.headY < -60) {
+      c.phase = 'hold';
+      c.timer = 0;
+      c.beamAlpha = 0;
+    }
+  } else if (c.phase === 'hold') {
+    if (c.timer > 1.4) {
+      GS.level++;
+      generateLevel();
+      GS.state = 'playing';
+      GS.worldReveal = 0;
+      GS.player.x = 120;
+      GS.player.y = FLOOR_Y() - GS.player.h;
+      GS.player.vx = 0;
+      GS.player.vy = 0;
+      GS.cameraX = 0;
+      updateHUD();
+    }
+  }
+}
+
+function renderCinematic() {
+  const W = canvas.width, H = canvas.height;
+  const fw = FLOOR_Y();
+  const c = GS.cinematic;
+  if (!c) return;
+  const pal = GS.world.palette;
+
+  // World still visible until blackout
+  if (c.blackAlpha < 1) {
+    renderBackground(pal);
+    renderFloor();
+    renderPlatforms();
+    renderParticles();
+  }
+
+  // Head resting / falling (visible until ascent phase)
+  if (c.phase !== 'hold' && GS.boss && GS.boss.headSprite) {
+    if (c.phase !== 'head_ascend' || c.headY < fw) {
+      ctx.save();
+      const hAlpha = c.phase === 'head_ascend' ? Math.max(0, 1 + c.headY / 60) : 1;
+      ctx.globalAlpha = hAlpha;
+      ctx.drawImage(GS.boss.headSprite, c.headX, c.headY, 40, 36);
+      ctx.restore();
+    }
+  }
+
+  // Black overlay
+  if (c.blackAlpha > 0) {
+    ctx.fillStyle = `rgba(0,0,0,${c.blackAlpha})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+
+  // Beam of light
+  if (c.beamAlpha > 0 && c.beamH > 0) {
+    ctx.save();
+    ctx.globalAlpha = c.beamAlpha * 0.55;
+    const bx = c.headX + 20;
+    const beamGrad = ctx.createLinearGradient(bx, 0, bx, c.beamH);
+    beamGrad.addColorStop(0, 'rgba(255,255,220,0)');
+    beamGrad.addColorStop(0.4, 'rgba(255,255,210,0.9)');
+    beamGrad.addColorStop(1, 'rgba(255,240,180,0.3)');
+    ctx.fillStyle = beamGrad;
+    ctx.fillRect(bx - 12, 0, 24, c.beamH);
+    // Wider soft glow
+    ctx.globalAlpha = c.beamAlpha * 0.12;
+    ctx.fillStyle = 'rgba(255,255,200,1)';
+    ctx.fillRect(bx - 50, 0, 100, c.beamH);
+    ctx.restore();
+  }
+
+  // Ascending head (over beam)
+  if (c.phase === 'head_ascend' && GS.boss && GS.boss.headSprite) {
+    ctx.save();
+    ctx.globalAlpha = Math.max(0, 1 + c.headY / 60);
+    ctx.drawImage(GS.boss.headSprite, c.headX, c.headY, 40, 36);
+    ctx.restore();
+  }
+
+  // The Ship — appears briefly during hold at extremely low probability
+  if (c.phase === 'hold' && c.shipVisible && c.timer > 0.2 && c.timer < 0.65) {
+    const shipAlpha = Math.sin((c.timer - 0.2) / 0.45 * Math.PI) * 0.18;
+    ctx.save();
+    ctx.globalAlpha = shipAlpha;
+    ctx.strokeStyle = '#ffffff';
+    ctx.lineWidth = 1;
+    const sx = W * 0.6, sy = H * 0.22;
+    ctx.beginPath();
+    ctx.moveTo(sx, sy + 10);
+    ctx.lineTo(sx + 40, sy + 10);
+    ctx.lineTo(sx + 50, sy);
+    ctx.lineTo(sx + 60, sy + 10);
+    ctx.lineTo(sx + 80, sy + 10);
+    ctx.lineTo(sx + 70, sy + 22);
+    ctx.lineTo(sx + 10, sy + 22);
+    ctx.closePath();
+    ctx.stroke();
+    ctx.moveTo(sx + 30, sy + 10);
+    ctx.lineTo(sx + 35, sy - 8);
+    ctx.lineTo(sx + 50, sy + 10);
+    ctx.stroke();
+    ctx.restore();
+  }
 }
 
 // ── Dimensional Room ───────────────────────────
@@ -1160,9 +1320,10 @@ function enterDimensionalRoom() {
   dr.previewTimer = 0;
   dr.flashTimer = 0;
   dr.flashCount = 0;
+  const invSide = Math.random() < 0.5 ? 0 : 1;
   dr.exitDoors = [
-    { x: canvas.width*0.15, y: canvas.height*0.3, w:50, h:80, type:'A', label:'+♥+INV', chosen: false },
-    { x: canvas.width*0.8,  y: canvas.height*0.3, w:50, h:80, type:'B', label:'+♥', chosen: false },
+    { x: canvas.width*0.15, y: canvas.height*0.3, w:50, h:80, type: invSide===0 ? 'A' : 'B', chosen: false },
+    { x: canvas.width*0.8,  y: canvas.height*0.3, w:50, h:80, type: invSide===1 ? 'A' : 'B', chosen: false },
   ];
   spawnDimWave();
 }
@@ -1772,8 +1933,7 @@ function renderDimensionalRoom() {
       ctx.font = '10px Chakra Petch, sans-serif';
       ctx.textAlign = 'center';
       ctx.shadowBlur = 0;
-      ctx.fillText(door.label, door.x+door.w/2, door.y + door.h + 18);
-      ctx.fillText('↑ ENTER', door.x+door.w/2, door.y + door.h + 32);
+      ctx.fillText('↑ ENTER', door.x+door.w/2, door.y + door.h + 20);
       ctx.restore();
     }
   }
@@ -1878,6 +2038,17 @@ function update(dt) {
     return;
   }
 
+  if (GS.state === 'boss_cinematic') {
+    updateCinematic(dt);
+    updateParticles(dt);
+    return;
+  }
+
+  // Progress world reveal
+  if (GS.worldReveal >= 0 && GS.worldReveal < 1) {
+    GS.worldReveal = Math.min(1, GS.worldReveal + dt * 0.22);
+  }
+
   // Playing / boss
   updatePlayer(dt);
   updateCamera(dt);
@@ -1901,6 +2072,11 @@ function render() {
 
   const pal = GS.world.palette;
 
+  if (GS.state === 'boss_cinematic') {
+    renderCinematic();
+    return;
+  }
+
   if (GS.state === 'dimensional') {
     renderDimensionalRoom();
     renderPlayer();
@@ -1915,6 +2091,11 @@ function render() {
   renderPlatforms();
   renderDimDoor();
 
+  // Monumental world name in world space (after boss transition)
+  if (GS.worldReveal >= 0) {
+    renderMonumentalText();
+  }
+
   // Enemies
   for (const e of GS.enemies) renderEnemy(e);
 
@@ -1927,10 +2108,45 @@ function render() {
   renderScreenDamage();
   renderAnnounce();
 
-  // World name watermark
+  // World name watermark (HUD layer, fades early)
   const wnd = document.getElementById('world-name-display');
   const wAlpha = Math.max(0, 1 - GS.levelTimer*0.04);
   wnd.style.opacity = wAlpha;
+
+  // Progressive reveal overlay (fade in from black after boss cinematic)
+  if (GS.worldReveal >= 0 && GS.worldReveal < 1) {
+    const revAlpha = Math.max(0, 1 - GS.worldReveal * 1.25);
+    ctx.fillStyle = `rgba(0,0,0,${revAlpha})`;
+    ctx.fillRect(0, 0, W, H);
+  }
+}
+
+function renderMonumentalText() {
+  const W = canvas.width, H = canvas.height;
+  const reveal = GS.worldReveal;
+  // Fade in as reveal progresses past 0.25, then hold, fade with levelTimer
+  const revealFade = reveal < 0 ? 0 : clamp((reveal - 0.25) / 0.4, 0, 1);
+  const timeFade = Math.max(0, 1 - GS.levelTimer * 0.03);
+  const alpha = revealFade * timeFade * 0.88;
+  if (alpha <= 0.01) return;
+
+  // Text in world space — player walks through it
+  const worldX = 180;
+  const sx = worldX - GS.cameraX;
+  if (sx < -W * 2 || sx > W * 1.5) return;
+
+  ctx.save();
+  ctx.globalAlpha = alpha;
+  const fontSize = Math.floor(H * 0.28);
+  ctx.font = `bold ${fontSize}px Chakra Petch, sans-serif`;
+  ctx.textBaseline = 'middle';
+  ctx.textAlign = 'left';
+  ctx.fillStyle = GS.world.palette.accent;
+  ctx.shadowColor = GS.world.palette.accent;
+  ctx.shadowBlur = 40;
+  ctx.fillText(GS.world.name, sx, H * 0.5);
+  ctx.shadowBlur = 0;
+  ctx.restore();
 }
 
 // ── Start / Restart ────────────────────────────
