@@ -251,7 +251,7 @@
   .tc-cluster { display: flex; gap: 6px; align-items: flex-end; pointer-events: auto; }
   .tc-col { display: flex; flex-direction: column; gap: 6px; align-items: center; }
   .tc-btn {
-    width: 52px; height: 52px;
+    width: 56px; height: 56px;
     border-radius: 50%;
     background: rgba(255,255,255,0.10);
     border: 1.5px solid rgba(255,255,255,0.28);
@@ -268,7 +268,7 @@
     transition: background 0.05s, border-color 0.05s;
     -webkit-tap-highlight-color: transparent;
   }
-  .tc-btn.tc-jump { width: 62px; height: 62px; font-size: 11px; border-color: rgba(255,255,255,0.45); }
+  .tc-btn.tc-jump { width: 67px; height: 67px; font-size: 11px; border-color: rgba(255,255,255,0.45); }
   .tc-btn.tc-atk  { border-color: rgba(255,120,80,0.6); color: rgba(255,150,100,0.9); }
   .tc-btn.tc-pressed {
     background: rgba(255,255,255,0.28);
@@ -440,7 +440,8 @@ document.addEventListener('keydown', e => {
 document.addEventListener('keyup', e => { Keys.held[e.code] = false; });
 function clearJust() { Keys.just = {}; }
 
-// ── Touch Controls ────────────────────────────
+// ── Touch Controls (Pointer Events for true multi-touch) ─────
+let attackBuffer = false;
 (function() {
   const map = {
     'tc-left':  'ArrowLeft',
@@ -457,18 +458,19 @@ function clearJust() { Keys.just = {}; }
     if (!el) return;
     const press = e => {
       e.preventDefault();
+      el.setPointerCapture(e.pointerId);
       if (!Keys.held[code]) Keys.just[code] = true;
       Keys.held[code] = true;
+      if (code === 'KeyJ') attackBuffer = true;
       el.classList.add('tc-pressed');
     };
     const release = e => {
-      e.preventDefault();
       Keys.held[code] = false;
       el.classList.remove('tc-pressed');
     };
-    el.addEventListener('touchstart',  press,   {passive: false});
-    el.addEventListener('touchend',    release, {passive: false});
-    el.addEventListener('touchcancel', release, {passive: false});
+    el.addEventListener('pointerdown',   press,   {passive: false});
+    el.addEventListener('pointerup',     release);
+    el.addEventListener('pointercancel', release);
   });
 })();
 
@@ -913,8 +915,9 @@ function updatePlayer(dt) {
       spawnParticles(p.x+p.w/2, p.y+p.h/2, 8, {color:'#ffffff',speedMin:20,speedMax:100,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3});
     }
 
-    // Attack
-    if (Keys.just['KeyJ'] || Keys.just['KeyZ']) {
+    // Attack (attackBuffer catches mobile touches that land between frames)
+    if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
+      attackBuffer = false;
       if (down && p.isGrounded) {
         // Slide kick
         p.isSliding = true;
@@ -1693,7 +1696,8 @@ function updatePlayerDim(dt) {
   if (down)  { p.vy = lerp(p.vy,  PLAYER_SPEED, 0.35); }
   if (!up && !down) p.vy = lerp(p.vy, 0, 0.3);
 
-  if (Keys.just['KeyJ'] || Keys.just['KeyZ']) {
+  if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
+    attackBuffer = false;
     p.attackTimer = 0.2;
     p.attackHitbox = { x: p.x + (p.facing>0?p.w:-p.w*0.8), y: p.y+2, w: p.w*1.2, h: p.h-4, type:'punch' };
     sfxAttack();
