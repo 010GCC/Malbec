@@ -975,11 +975,11 @@ function updatePlayer(dt) {
     p.jumpsLeft = 2;
   }
 
-  // Platform collisions
+  // Platform collisions (one-way: jump through from below, land on top)
   for (const pl of GS.platforms) {
-    const wx = pl.x - GS.cameraX;
-    if (p.x + p.w > wx && p.x < wx + pl.w &&
-        p.y + p.h > pl.y && p.y + p.h < pl.y + pl.h + 20 && p.vy >= 0) {
+    if (p.x + p.w > pl.x && p.x < pl.x + pl.w &&
+        p.vy >= 0 &&
+        p.y + p.h > pl.y && p.y + p.h < pl.y + pl.h + Math.max(20, p.vy * 0.05 + 4)) {
       p.y = pl.y - p.h;
       p.vy = 0;
       p.isGrounded = true;
