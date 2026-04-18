@@ -19,6 +19,7 @@
     display: block;
     width: 100vw;
     height: 100vh;
+    pointer-events: none;
   }
   #ui {
     position: fixed;
@@ -2210,9 +2211,9 @@ function doRestart() {
   requestAnimationFrame(gameLoop);
 }
 document.getElementById('start-btn').addEventListener('click', doStart);
-document.getElementById('start-btn').addEventListener('touchend', e => { e.preventDefault(); doStart(); });
+document.getElementById('start-btn').addEventListener('touchstart', e => { e.preventDefault(); doStart(); }, {passive: false});
 document.getElementById('restart-btn').addEventListener('click', doRestart);
-document.getElementById('restart-btn').addEventListener('touchend', e => { e.preventDefault(); doRestart(); });
+document.getElementById('restart-btn').addEventListener('touchstart', e => { e.preventDefault(); doRestart(); }, {passive: false});
 
 // ── Boss level transition warning ─────────────
 function checkBossWarning() {
