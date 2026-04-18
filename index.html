@@ -235,6 +235,45 @@
     border-radius: 2px;
     transition: width 0.1s;
   }
+  /* Touch controls */
+  #touch-controls {
+    position: fixed;
+    bottom: 0; left: 0; right: 0;
+    height: 150px;
+    z-index: 40;
+    display: none;
+    justify-content: space-between;
+    align-items: flex-end;
+    padding: 0 12px 16px;
+    pointer-events: none;
+  }
+  #touch-controls.tc-active { display: flex; pointer-events: none; }
+  .tc-cluster { display: flex; gap: 6px; align-items: flex-end; pointer-events: auto; }
+  .tc-col { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .tc-btn {
+    width: 52px; height: 52px;
+    border-radius: 50%;
+    background: rgba(255,255,255,0.10);
+    border: 1.5px solid rgba(255,255,255,0.28);
+    color: rgba(255,255,255,0.75);
+    font-family: 'Chakra Petch', sans-serif;
+    font-size: 10px;
+    letter-spacing: 1px;
+    touch-action: none;
+    user-select: none;
+    -webkit-user-select: none;
+    display: flex; align-items: center; justify-content: center;
+    pointer-events: auto;
+    cursor: pointer;
+    transition: background 0.05s, border-color 0.05s;
+    -webkit-tap-highlight-color: transparent;
+  }
+  .tc-btn.tc-jump { width: 62px; height: 62px; font-size: 11px; border-color: rgba(255,255,255,0.45); }
+  .tc-btn.tc-atk  { border-color: rgba(255,120,80,0.6); color: rgba(255,150,100,0.9); }
+  .tc-btn.tc-pressed {
+    background: rgba(255,255,255,0.28);
+    border-color: rgba(255,255,255,0.8);
+  }
   /* Orientation warning */
   #orient-warn {
     display: none;
@@ -312,6 +351,30 @@
   <button class="start-btn" id="restart-btn">AGAIN</button>
 </div>
 
+<!-- Touch controls -->
+<div id="touch-controls">
+  <!-- Left: movement -->
+  <div class="tc-cluster">
+    <button class="tc-btn" id="tc-left">◀</button>
+    <div class="tc-col">
+      <button class="tc-btn" id="tc-up">▲</button>
+      <button class="tc-btn" id="tc-down">▼</button>
+    </div>
+    <button class="tc-btn" id="tc-right">▶</button>
+  </div>
+  <!-- Right: actions -->
+  <div class="tc-cluster">
+    <button class="tc-btn tc-jump" id="tc-jump">JUMP</button>
+    <div class="tc-col">
+      <button class="tc-btn tc-atk" id="tc-atk">ATK</button>
+      <button class="tc-btn" id="tc-dash">DSH</button>
+    </div>
+    <div class="tc-col">
+      <button class="tc-btn" id="tc-evade">EVD</button>
+    </div>
+  </div>
+</div>
+
 <!-- Orientation warning -->
 <div id="orient-warn">
   <div class="big">↻</div>
@@ -380,6 +443,44 @@ document.addEventListener('keydown', e => {
 });
 document.addEventListener('keyup', e => { Keys.held[e.code] = false; });
 function clearJust() { Keys.just = {}; }
+
+// ── Touch Controls ────────────────────────────
+(function() {
+  const map = {
+    'tc-left':  'ArrowLeft',
+    'tc-right': 'ArrowRight',
+    'tc-up':    'ArrowUp',
+    'tc-down':  'ArrowDown',
+    'tc-jump':  'ArrowUp',
+    'tc-atk':   'KeyJ',
+    'tc-dash':  'KeyK',
+    'tc-evade': 'KeyL',
+  };
+  Object.entries(map).forEach(([id, code]) => {
+    const el = document.getElementById(id);
+    if (!el) return;
+    const press = e => {
+      e.preventDefault();
+      if (!Keys.held[code]) Keys.just[code] = true;
+      Keys.held[code] = true;
+      el.classList.add('tc-pressed');
+    };
+    const release = e => {
+      e.preventDefault();
+      Keys.held[code] = false;
+      el.classList.remove('tc-pressed');
+    };
+    el.addEventListener('touchstart',  press,   {passive: false});
+    el.addEventListener('touchend',    release, {passive: false});
+    el.addEventListener('touchcancel', release, {passive: false});
+  });
+})();
+
+function updateTouchControls() {
+  const tc = document.getElementById('touch-controls');
+  const on = ['playing','dimensional','boss'].includes(GS.state);
+  tc.classList.toggle('tc-active', on);
+}
 
 // ── Audio (procedural via Web Audio) ─────────
 let audioCtx;
@@ -1529,6 +1630,7 @@ function checkLevelComplete() {
 // ── Game Over ─────────────────────────────────
 function triggerGameOver() {
   GS.state = 'gameover';
+  document.getElementById('touch-controls').classList.remove('tc-active');
   document.getElementById('final-score').textContent = GS.score.toLocaleString();
   document.getElementById('gameover-screen').classList.remove('hidden');
 }
@@ -1786,6 +1888,103 @@ function renderPlayer() {
   ctx.restore();
 }
 
+function drawEnemyHead(ctx, x, y, w, h, pal, flash) {
+  const cx = x + w/2, cy = y + h/2;
+  const rx = w * 0.44, ry = h * 0.46;
+  // Skull shape
+  ctx.fillStyle = flash > 0 ? '#fff' : darken(pal.accent, 0.2);
+  ctx.beginPath();
+  ctx.ellipse(cx, cy - h*0.05, rx, ry, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Jaw — flat bottom
+  ctx.fillStyle = flash > 0 ? '#fff' : darken(pal.accent, 0.4);
+  ctx.fillRect(cx - rx*0.55, cy + ry*0.35, rx*1.1, ry*0.45);
+  // Eye sockets
+  ctx.fillStyle = '#000';
+  ctx.beginPath();
+  ctx.ellipse(cx - w*0.17, cy - h*0.08, w*0.11, h*0.13, 0, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.ellipse(cx + w*0.17, cy - h*0.08, w*0.11, h*0.13, 0, 0, Math.PI*2);
+  ctx.fill();
+  // Glowing pupils
+  ctx.fillStyle = flash > 0 ? '#fff' : pal.accent;
+  ctx.shadowColor = pal.accent;
+  ctx.shadowBlur = 4;
+  ctx.beginPath();
+  ctx.arc(cx - w*0.17, cy - h*0.08, w*0.055, 0, Math.PI*2);
+  ctx.fill();
+  ctx.beginPath();
+  ctx.arc(cx + w*0.17, cy - h*0.08, w*0.055, 0, Math.PI*2);
+  ctx.fill();
+  ctx.shadowBlur = 0;
+  // Teeth
+  ctx.fillStyle = flash > 0 ? '#aaa' : 'rgba(255,255,255,0.7)';
+  const tw = rx*0.18, th = ry*0.22, tx0 = cx - rx*0.4;
+  for (let i=0; i<3; i++) {
+    ctx.fillRect(tx0 + i*(tw+2), cy + ry*0.35, tw, th);
+  }
+}
+
+function drawEnemyLegs(ctx, x, y, w, h, pal, flash) {
+  const base = flash > 0 ? '#fff' : pal.accent;
+  const dk = flash > 0 ? '#ccc' : darken(pal.accent, 0.35);
+  const boot = flash > 0 ? '#888' : darken(pal.accent, 0.55);
+  const lw = w * 0.34, gap = w * 0.08;
+  const lx = x + w/2 - lw - gap/2;
+  const rx2 = x + w/2 + gap/2;
+  const thighH = h * 0.45, shinH = h * 0.38, bootH = h * 0.17;
+  // Thighs
+  ctx.fillStyle = base;
+  ctx.fillRect(lx,  y, lw, thighH);
+  ctx.fillRect(rx2, y, lw, thighH);
+  // Knee band
+  ctx.fillStyle = dk;
+  ctx.fillRect(lx,  y + thighH - 3, lw, 5);
+  ctx.fillRect(rx2, y + thighH - 3, lw, 5);
+  // Shins
+  ctx.fillStyle = dk;
+  ctx.fillRect(lx  + 2, y + thighH, lw - 4, shinH);
+  ctx.fillRect(rx2 + 2, y + thighH, lw - 4, shinH);
+  // Boots
+  ctx.fillStyle = boot;
+  ctx.fillRect(lx  - 2, y + thighH + shinH, lw + 4, bootH);
+  ctx.fillRect(rx2 - 2, y + thighH + shinH, lw + 4, bootH);
+  // Highlight stripe on thigh
+  ctx.fillStyle = 'rgba(255,255,255,0.18)';
+  ctx.fillRect(lx  + 2, y + 2, 3, thighH - 4);
+  ctx.fillRect(rx2 + 2, y + 2, 3, thighH - 4);
+}
+
+function drawEnemyTorso(ctx, x, y, w, h, pal, flash) {
+  const base  = flash > 0 ? '#fff' : pal.accent;
+  const dk    = flash > 0 ? '#ccc' : darken(pal.accent, 0.35);
+  const lt    = flash > 0 ? '#fff' : lighten(pal.accent, 0.25);
+  const bw = w * 0.52, bx = x + (w - bw)/2;
+  const aw = w * 0.18;
+  // Body
+  ctx.fillStyle = base;
+  ctx.fillRect(bx, y + h*0.05, bw, h * 0.9);
+  // Highlight
+  ctx.fillStyle = lt;
+  ctx.fillRect(bx + 3, y + h*0.05, 4, h * 0.9);
+  // Shadow
+  ctx.fillStyle = dk;
+  ctx.fillRect(bx + bw - 4, y + h*0.05, 4, h * 0.9);
+  // Spine detail
+  ctx.fillStyle = 'rgba(0,0,0,0.25)';
+  ctx.fillRect(bx + bw/2 - 2, y + h*0.1, 4, h * 0.8);
+  // Arms
+  ctx.fillStyle = dk;
+  ctx.fillRect(x, y + h*0.1, aw, h * 0.7);
+  ctx.fillRect(x + w - aw, y + h*0.1, aw, h * 0.7);
+  // Severed neck top — ragged
+  ctx.fillStyle = '#7a0000';
+  ctx.fillRect(bx + bw*0.2, y, bw*0.6, h*0.07);
+  // Severed legs bottom — ragged
+  ctx.fillRect(bx + bw*0.15, y + h*0.93, bw*0.7, h*0.07);
+}
+
 function renderEnemy(e) {
   const camX = (GS.state === 'dimensional') ? 0 : GS.cameraX;
   const sx = e.x - camX;
@@ -1797,16 +1996,14 @@ function renderEnemy(e) {
     ctx.shadowColor = '#fff';
     ctx.shadowBlur = 8;
   }
-  if (e.sprite) {
-    ctx.drawImage(e.sprite, sx, e.y, e.w, e.h);
+  const pal = GS.world.palette;
+  if (e.type === 'head') {
+    drawEnemyHead(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
+  } else if (e.type === 'legs') {
+    drawEnemyLegs(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
   } else {
-    ctx.fillStyle = e.type==='head' ? '#cc4444' : (e.type==='legs' ? '#44cc44' : '#4444cc');
-    ctx.fillRect(sx, e.y, e.w, e.h);
+    drawEnemyTorso(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
   }
-  // Type indicator
-  ctx.globalAlpha = 0.6;
-  ctx.fillStyle = e.type==='head' ? '#ff4444' : (e.type==='legs' ? '#44ff44' : '#4488ff');
-  ctx.fillRect(sx + e.w/2 - 3, e.y - 6, 6, 6);
   ctx.restore();
 }
 
@@ -2061,6 +2258,7 @@ function gameLoop(timestamp) {
 function update(dt) {
   if (GS.state === 'gameover' || GS.state === 'title') return;
 
+  updateTouchControls();
   GS.levelTimer += dt;
   GS.flashAlpha = Math.max(0, GS.flashAlpha - dt*3);
 
