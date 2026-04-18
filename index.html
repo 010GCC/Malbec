@@ -91,6 +91,7 @@
     background: #000;
     transition: opacity 0.6s;
     pointer-events: auto;
+    touch-action: manipulation;
   }
   .overlay.hidden { display: none; }
   #title-screen { background: #000; }
@@ -122,6 +123,8 @@
     text-transform: uppercase;
     transition: border-color 0.2s, background 0.2s;
     pointer-events: auto;
+    touch-action: manipulation;
+    -webkit-tap-highlight-color: rgba(255,255,255,0.1);
   }
   .start-btn:hover {
     border-color: rgba(255,255,255,0.7);
@@ -2150,7 +2153,7 @@ function renderMonumentalText() {
 }
 
 // ── Start / Restart ────────────────────────────
-document.getElementById('start-btn').addEventListener('click', () => {
+function doStart() {
   initAudio();
   document.getElementById('title-screen').classList.add('hidden');
   resetGame();
@@ -2158,9 +2161,8 @@ document.getElementById('start-btn').addEventListener('click', () => {
   running = true;
   lastTime = performance.now();
   requestAnimationFrame(gameLoop);
-});
-
-document.getElementById('restart-btn').addEventListener('click', () => {
+}
+function doRestart() {
   initAudio();
   document.getElementById('gameover-screen').classList.add('hidden');
   resetGame();
@@ -2168,7 +2170,11 @@ document.getElementById('restart-btn').addEventListener('click', () => {
   running = true;
   lastTime = performance.now();
   requestAnimationFrame(gameLoop);
-});
+}
+document.getElementById('start-btn').addEventListener('click', doStart);
+document.getElementById('start-btn').addEventListener('touchend', e => { e.preventDefault(); doStart(); });
+document.getElementById('restart-btn').addEventListener('click', doRestart);
+document.getElementById('restart-btn').addEventListener('touchend', e => { e.preventDefault(); doRestart(); });
 
 // ── Boss level transition warning ─────────────
 function checkBossWarning() {
