@@ -421,6 +421,15 @@ const FLOOR_Y = () => canvas.height - TILE * 1.5;
 const ENEMY_CONTACT_DMG = 5; // % per contact trigger
 const SPIKE_DMG = 15; // % per second
 const WORLD_SCROLL_SPEED = 220;
+const BULLET_SPEED = 620;
+const GUN_DEFS = {
+  laser:         { ammo: Infinity, cooldown: 0.13, color: '#00eeff', label: 'LASER',        dmg: 1 },
+  spread:        { ammo: 24,       cooldown: 0.38, color: '#ffaa00', label: 'SPREAD',       dmg: 1 },
+  spread_bounce: { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SPREAD BOUNCE',dmg: 1 },
+  bounce:        { ammo: 14,       cooldown: 0.22, color: '#aaffaa', label: 'RICOCHET',     dmg: 2 },
+  railgun:       { ammo: 7,        cooldown: 0.75, color: '#ffff44', label: 'RAILGUN',      dmg: 99 },
+  homing_spread: { ammo: 20,       cooldown: 0.45, color: '#ff44ff', label: 'SEEKER',       dmg: 1 },
+};
 
 // ── World Identity ───────────────────────────
 const CHARACTERISTICS = [
@@ -462,7 +471,7 @@ let attackBuffer = false;
     'tc-right': 'ArrowRight',
     'tc-up':    'ArrowUp',
     'tc-down':  'ArrowDown',
-    'tc-jump':  'ArrowUp',
+    'tc-jump':  'Space',
     'tc-atk':   'KeyJ',
     'tc-dash':  'KeyK',
     'tc-evade': 'KeyL',
@@ -655,6 +664,9 @@ function resetGame() {
       attackTimer: 0,
       attackHitbox: null,
       isGrounded: false,
+      onFloor: false,
+      gun: { type: 'laser', ammo: Infinity },
+      gunCooldown: 0,
       isEvading: false,
       evadeTimer: 0,
       flashTimer: 0, // i-frames flash
@@ -678,6 +690,10 @@ function resetGame() {
     // Boss
     boss: null,
     bossActive: false,
+    // Bullets and weapon pickups
+    bullets: [],
+    weaponPickups: [],
+    railBeam: null,
     // Particles
     particles: [],
     // World name alpha
@@ -726,6 +742,11 @@ function generateLevel() {
   GS.platforms = [];
   GS.spikes = [];
   GS.enemies = [];
+  GS.bullets = [];
+  GS.weaponPickups = [];
+  GS.railBeam = null;
+  GS.player.gun = { type: 'laser', ammo: Infinity };
+  GS.player.gunCooldown = 0;
   GS.dimDoor = null;
   GS.dimDoorActive = false;
   GS.cameraX = 0;
@@ -757,10 +778,20 @@ function generateLevel() {
     GS.spikes.push({ x, y: fw - 18, w: 40, h: 18 });
   }
 
+  // Weapon pickups — 2 random drops spaced across the level
+  const gunPool = ['spread','spread_bounce','bounce','railgun','homing_spread'];
+  const pick1 = pick(gunPool);
+  let pick2 = pick(gunPool);
+  while (pick2 === pick1) pick2 = pick(gunPool);
+  const pu1x = W * 0.35 + rand(0, GS.distanceGoal * 0.3);
+  const pu2x = GS.distanceGoal * 0.55 + rand(0, GS.distanceGoal * 0.3);
+  GS.weaponPickups.push({ wx: pu1x, y: fw - 28, type: pick1, w: 26, h: 20 });
+  GS.weaponPickups.push({ wx: pu2x, y: fw - 28, type: pick2, w: 26, h: 20 });
+
   // Dimensional room door — visible in background at ~40% of level
   if (!isBoss) {
     const doorX = GS.distanceGoal * 0.4 + rand(0, 200);
-    GS.dimDoor = { x: doorX, y: fw - TILE*2.5, w: 40, h: 70, pulseAlpha: 1 };
+    GS.dimDoor = { x: doorX, y: fw - 70, w: 40, h: 70, pulseAlpha: 1 };
     GS.dimDoorActive = true;
   }
 
@@ -886,8 +917,8 @@ function updatePlayer(dt) {
   if (p.slideTimer > 0) p.slideTimer -= dt;
   if (p.flashTimer > 0) p.flashTimer -= dt;
 
-  // Lava floor: if active, floor is lava — 15%/s damage unless in air
-  if (GS.lavaActive && p.isGrounded && !p.isGold) {
+  // Lava floor: if active, only the actual floor is lava — platforms are safe
+  if (GS.lavaActive && p.onFloor && !p.isGold) {
     takeDamage(SPIKE_DMG * dt * 0.5);
   }
 
@@ -907,12 +938,19 @@ function updatePlayer(dt) {
     const right = Keys.held['KeyD'] || Keys.held['ArrowRight'];
     const down  = Keys.held['KeyS'] || Keys.held['ArrowDown'];
 
+    const up = Keys.held['ArrowUp'];
+
     if (left)  { p.vx = lerp(p.vx, -PLAYER_SPEED, 0.35); p.facing = -1; }
     if (right) { p.vx = lerp(p.vx,  PLAYER_SPEED, 0.35); p.facing =  1; }
     if (!left && !right) { p.vx = lerp(p.vx, 0, 0.3); }
 
-    // Jump
-    if ((Keys.just['KeyW'] || Keys.just['Space'] || Keys.just['ArrowUp']) && p.jumpsLeft > 0) {
+    // UP while airborne: straighten horizontal drift toward zero
+    if (up && !p.isGrounded && !left && !right) {
+      p.vx = lerp(p.vx, 0, 0.12);
+    }
+
+    // Jump — Space or W only; ArrowUp is reserved for doors and air-correction
+    if ((Keys.just['KeyW'] || Keys.just['Space']) && p.jumpsLeft > 0) {
       p.vy = JUMP_FORCE * (p.jumpsLeft === 1 ? 0.85 : 1);
       p.jumpsLeft--;
       sfxJump();
@@ -929,26 +967,11 @@ function updatePlayer(dt) {
       spawnParticles(p.x+p.w/2, p.y+p.h/2, 8, {color:'#ffffff',speedMin:20,speedMax:100,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3});
     }
 
-    // Attack (attackBuffer catches mobile touches that land between frames)
+    // Fire gun
+    if (p.gunCooldown > 0) p.gunCooldown -= dt;
     if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
       attackBuffer = false;
-      if (down && p.isGrounded) {
-        // Slide kick
-        p.isSliding = true;
-        p.slideTimer = 0.35;
-        p.vx = p.facing * PLAYER_SPEED * 1.5;
-        sfxAttack();
-      } else if (left || right) {
-        // Spin kick
-        p.attackTimer = 0.25;
-        p.attackHitbox = { x: p.x + (p.facing>0?p.w:-(p.w)), y: p.y+4, w: p.w*1.2, h: p.h-8, type:'spin' };
-        sfxAttack();
-      } else {
-        // Punch / kick
-        p.attackTimer = 0.2;
-        p.attackHitbox = { x: p.x + (p.facing>0?p.w:-p.w*0.8), y: p.y+6, w: p.w*0.9, h: p.h-12, type:'punch' };
-        sfxAttack();
-      }
+      fireGun();
     }
 
     // Evade
@@ -985,10 +1008,12 @@ function updatePlayer(dt) {
 
   // Floor collision
   p.isGrounded = false;
+  p.onFloor = false;
   if (p.y + p.h >= fw) {
     p.y = fw - p.h;
     p.vy = 0;
     p.isGrounded = true;
+    p.onFloor = true;
     p.jumpsLeft = 2;
   }
 
@@ -1057,6 +1082,235 @@ function updateCamera(dt) {
   const target = p.x - canvas.width * 0.35;
   GS.cameraX = lerp(GS.cameraX, Math.max(0, target), 0.08);
   GS.distanceTraveled = GS.cameraX;
+}
+
+// ── Gun System ─────────────────────────────────
+function sfxShoot(type) {
+  const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
+  const o = ctx2.createOscillator();
+  const g = ctx2.createGain();
+  o.connect(g); g.connect(ctx2.destination);
+  if (type === 'laser')         { o.frequency.setValueAtTime(880,0); o.frequency.exponentialRampToValueAtTime(220,0.08); g.gain.setValueAtTime(0.15,0); g.gain.exponentialRampToValueAtTime(0.001,0.1); }
+  else if (type === 'railgun')  { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); }
+  else                          { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); }
+  o.type = 'sawtooth';
+  o.start(); o.stop(ctx2.currentTime + 0.3);
+}
+
+function spawnBullet(wx, y, vx, vy, gunType, bounces) {
+  const def = GUN_DEFS[gunType];
+  GS.bullets.push({ wx, y, vx, vy, gunType, bounces: bounces||0, alive: true, age: 0, dmg: def.dmg });
+}
+
+function fireGun() {
+  const p = GS.player;
+  const def = GUN_DEFS[p.gun.type];
+  if (p.gunCooldown > 0) return;
+  if (p.gun.ammo <= 0) { p.gun = { type: 'laser', ammo: Infinity }; return; }
+  p.gunCooldown = def.cooldown;
+  if (p.gun.ammo !== Infinity) p.gun.ammo--;
+
+  const bx = p.x + (p.facing > 0 ? p.w + 2 : -4);
+  const by = p.y + p.h * 0.4;
+  const dir = p.facing;
+  const t = p.gun.type;
+
+  if (t === 'laser') {
+    spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED, 0, t, 0);
+  } else if (t === 'spread') {
+    for (let a = -2; a <= 2; a++) {
+      const ang = a * 0.18;
+      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 0);
+    }
+  } else if (t === 'spread_bounce') {
+    for (let a = -2; a <= 2; a++) {
+      const ang = a * 0.18;
+      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 3);
+    }
+  } else if (t === 'bounce') {
+    spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED, -180, t, 5);
+  } else if (t === 'railgun') {
+    // Instant piercing beam — hit all enemies in horizontal band
+    const playerScreenY = p.y;
+    const hitBand = { y: p.y - 10, h: p.h + 20 };
+    for (const e of GS.enemies) {
+      const ex = e.x - GS.cameraX;
+      if (dir > 0 ? ex > p.x : ex < p.x + p.w) {
+        if (e.y + e.h > hitBand.y && e.y < hitBand.y + hitBand.h) {
+          e.hp = 0; e.alive = false;
+          GS.score += 200;
+          spawnParticles(ex+e.w/2, e.y+e.h/2, 20, {color:'#ffff44',speedMin:80,speedMax:350,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:7,upBias:60});
+        }
+      }
+    }
+    GS.enemies = GS.enemies.filter(e => e.alive);
+    GS.railBeam = { dir, y: by, timer: 0.12, screenX: bx };
+    updateHUD();
+  } else if (t === 'homing_spread') {
+    for (let a = -1; a <= 1; a++) {
+      const ang = a * 0.28;
+      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) * 0.5, t, 0);
+    }
+  }
+  sfxShoot(t);
+}
+
+function updateBullets(dt) {
+  const fw = FLOOR_Y();
+  const W = canvas.width;
+  for (const b of GS.bullets) {
+    if (!b.alive) continue;
+    b.age += dt;
+    if (b.age > 4) { b.alive = false; continue; }
+
+    // Homing: steer toward nearest enemy
+    if (b.gunType === 'homing_spread' && GS.enemies.length > 0) {
+      let nearest = null, nd = Infinity;
+      for (const e of GS.enemies) {
+        const d = Math.hypot(e.x - b.wx, e.y - b.y);
+        if (d < nd) { nd = d; nearest = e; }
+      }
+      if (nearest) {
+        const tx = nearest.x - b.wx, ty = nearest.y - b.y;
+        const len = Math.hypot(tx, ty) || 1;
+        b.vx = lerp(b.vx, (tx/len) * BULLET_SPEED, 0.06);
+        b.vy = lerp(b.vy, (ty/len) * BULLET_SPEED, 0.06);
+      }
+    }
+
+    b.wx += b.vx * dt;
+    b.y  += b.vy * dt;
+
+    // Floor bounce
+    if (b.y >= fw) {
+      if (b.bounces > 0) { b.y = fw - 1; b.vy = -Math.abs(b.vy) * 0.82; b.bounces--; }
+      else { b.alive = false; continue; }
+    }
+    // Ceiling
+    if (b.y < 0) {
+      if (b.bounces > 0) { b.y = 1; b.vy = Math.abs(b.vy); b.bounces--; }
+      else { b.alive = false; continue; }
+    }
+
+    // Far off-screen
+    const sx = b.wx - GS.cameraX;
+    if (sx < -200 || sx > W + 200) { b.alive = false; continue; }
+
+    // Enemy hit
+    for (const e of GS.enemies) {
+      if (!e.alive) continue;
+      const ex = e.x - GS.cameraX;
+      if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:ex,y:e.y,w:e.w,h:e.h})) {
+        e.hp -= b.dmg;
+        e.hitFlash = 0.15;
+        spawnParticles(sx, b.y, 5, {color:GUN_DEFS[b.gunType].color,speedMin:40,speedMax:160,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3,upBias:20});
+        if (e.hp <= 0) {
+          e.alive = false;
+          GS.score += 200;
+          spawnParticles(ex+e.w/2, e.y+e.h/2, 14, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
+          updateHUD();
+        }
+        // Railgun pierces; others die on hit
+        if (b.gunType !== 'railgun') { b.alive = false; }
+        break;
+      }
+    }
+  }
+  GS.bullets = GS.bullets.filter(b => b.alive);
+  GS.enemies = GS.enemies.filter(e => e.alive);
+  if (GS.railBeam) { GS.railBeam.timer -= dt; if (GS.railBeam.timer <= 0) GS.railBeam = null; }
+}
+
+function updateWeaponPickups(dt) {
+  const p = GS.player;
+  const px = p.x; // screen coords
+  for (const pu of GS.weaponPickups) {
+    if (pu.taken) continue;
+    const sx = pu.wx - GS.cameraX;
+    if (rectsOverlap({x:px,y:p.y,w:p.w,h:p.h},{x:sx,y:pu.y,w:pu.w,h:pu.h})) {
+      pu.taken = true;
+      p.gun = { type: pu.type, ammo: GUN_DEFS[pu.type].ammo };
+      p.gunCooldown = 0;
+      GS.announceText = GUN_DEFS[pu.type].label;
+      GS.announceAlpha = 1.2;
+    }
+  }
+}
+
+function renderBullets() {
+  for (const b of GS.bullets) {
+    const sx = b.wx - GS.cameraX;
+    const col = GUN_DEFS[b.gunType].color;
+    ctx.save();
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 8;
+    ctx.fillStyle = col;
+    if (b.gunType === 'laser') {
+      ctx.fillRect(sx - 8, b.y - 2, 16, 4);
+    } else if (b.gunType === 'railgun') {
+      ctx.fillRect(sx - 6, b.y - 3, 12, 6);
+    } else {
+      ctx.beginPath();
+      ctx.arc(sx, b.y, 4, 0, Math.PI*2);
+      ctx.fill();
+    }
+    ctx.restore();
+  }
+  // Railgun beam flash
+  if (GS.railBeam) {
+    const rb = GS.railBeam;
+    const alpha = rb.timer / 0.12;
+    ctx.save();
+    ctx.globalAlpha = alpha * 0.85;
+    ctx.strokeStyle = '#ffff44';
+    ctx.lineWidth = 6;
+    ctx.shadowColor = '#ffff44';
+    ctx.shadowBlur = 30;
+    ctx.beginPath();
+    ctx.moveTo(rb.screenX, rb.y);
+    ctx.lineTo(rb.dir > 0 ? canvas.width + 20 : -20, rb.y);
+    ctx.stroke();
+    ctx.restore();
+  }
+}
+
+function renderWeaponPickups() {
+  for (const pu of GS.weaponPickups) {
+    if (pu.taken) continue;
+    const sx = pu.wx - GS.cameraX;
+    if (sx < -60 || sx > canvas.width + 60) continue;
+    const col = GUN_DEFS[pu.type].color;
+    const pulse = 0.7 + 0.3 * Math.sin(GS.levelTimer * 3.5);
+    ctx.save();
+    ctx.globalAlpha = pulse;
+    ctx.fillStyle = col;
+    ctx.shadowColor = col;
+    ctx.shadowBlur = 12;
+    // Gun icon: simple rect body + barrel
+    ctx.fillRect(sx, pu.y + 6, 18, 8);
+    ctx.fillRect(sx + 14, pu.y + 4, 10, 4);
+    ctx.fillRect(sx + 4, pu.y + 14, 6, 5);
+    ctx.globalAlpha = pulse * 0.9;
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 8px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText(GUN_DEFS[pu.type].label, sx + 12, pu.y - 4);
+    ctx.restore();
+  }
+}
+
+function renderGunHUD() {
+  const p = GS.player;
+  const def = GUN_DEFS[p.gun.type];
+  const ammoStr = p.gun.ammo === Infinity ? '∞' : String(p.gun.ammo);
+  ctx.save();
+  ctx.fillStyle = def.color;
+  ctx.shadowColor = def.color;
+  ctx.shadowBlur = 8;
+  ctx.font = 'bold 11px Share Tech Mono, monospace';
+  ctx.textAlign = 'right';
+  ctx.fillText(`${def.label}  ${ammoStr}`, canvas.width - 16, canvas.height - 52);
+  ctx.restore();
 }
 
 // ── Enemy Spawning ─────────────────────────────
@@ -1477,9 +1731,10 @@ function enterDimensionalRoom() {
   dr.flashTimer = 0;
   dr.flashCount = 0;
   const invSide = Math.random() < 0.5 ? 0 : 1;
+  const dimFloorY = canvas.height - 80 - 80; // doors sit at the bottom boundary
   dr.exitDoors = [
-    { x: canvas.width*0.15, y: canvas.height*0.3, w:50, h:80, type: invSide===0 ? 'A' : 'B', chosen: false },
-    { x: canvas.width*0.8,  y: canvas.height*0.3, w:50, h:80, type: invSide===1 ? 'A' : 'B', chosen: false },
+    { x: canvas.width*0.15, y: dimFloorY, w:50, h:80, type: invSide===0 ? 'A' : 'B', chosen: false },
+    { x: canvas.width*0.8,  y: dimFloorY, w:50, h:80, type: invSide===1 ? 'A' : 'B', chosen: false },
   ];
   spawnDimWave();
 }
@@ -2309,6 +2564,8 @@ function update(dt) {
   updateEnemies(dt);
   if (GS.bossActive) updateBoss(dt);
   updateParticles(dt);
+  updateBullets(dt);
+  updateWeaponPickups(dt);
   updateLavaEvent(dt);
   checkDimDoor(dt);
   checkLevelComplete();
@@ -2350,6 +2607,9 @@ function render() {
     renderMonumentalText();
   }
 
+  // Weapon pickups
+  renderWeaponPickups();
+
   // Enemies
   for (const e of GS.enemies) renderEnemy(e);
 
@@ -2358,9 +2618,11 @@ function render() {
 
   // Player
   renderPlayer();
+  renderBullets();
   renderParticles();
   renderScreenDamage();
   renderAnnounce();
+  renderGunHUD();
 
   // World name watermark (HUD layer, fades early)
   const wnd = document.getElementById('world-name-display');
