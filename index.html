@@ -1116,26 +1116,25 @@ function fireGun() {
   const t = p.gun.type;
 
   if (t === 'laser') {
-    spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED, 0, t, 0);
+    spawnBullet(bx, by, dir * BULLET_SPEED, 0, t, 0);
   } else if (t === 'spread') {
     for (let a = -2; a <= 2; a++) {
       const ang = a * 0.18;
-      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 0);
+      spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 0);
     }
   } else if (t === 'spread_bounce') {
     for (let a = -2; a <= 2; a++) {
       const ang = a * 0.18;
-      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 3);
+      spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 3);
     }
   } else if (t === 'bounce') {
-    spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED, -180, t, 5);
+    spawnBullet(bx, by, dir * BULLET_SPEED, -180, t, 5);
   } else if (t === 'railgun') {
     // Instant piercing beam — hit all enemies in horizontal band
-    const playerScreenY = p.y;
     const hitBand = { y: p.y - 10, h: p.h + 20 };
     for (const e of GS.enemies) {
       const ex = e.x - GS.cameraX;
-      if (dir > 0 ? ex > p.x : ex < p.x + p.w) {
+      if (dir > 0 ? e.x > p.x : e.x < p.x + p.w) {
         if (e.y + e.h > hitBand.y && e.y < hitBand.y + hitBand.h) {
           e.hp = 0; e.alive = false;
           GS.score += 200;
@@ -1144,12 +1143,12 @@ function fireGun() {
       }
     }
     GS.enemies = GS.enemies.filter(e => e.alive);
-    GS.railBeam = { dir, y: by, timer: 0.12, screenX: bx };
+    GS.railBeam = { dir, y: by, timer: 0.12, screenX: bx - GS.cameraX };
     updateHUD();
   } else if (t === 'homing_spread') {
     for (let a = -1; a <= 1; a++) {
       const ang = a * 0.28;
-      spawnBullet(bx + GS.cameraX, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) * 0.5, t, 0);
+      spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) * 0.5, t, 0);
     }
   }
   sfxShoot(t);
@@ -1229,7 +1228,7 @@ function updateWeaponPickups(dt) {
     const sx = pu.wx - GS.cameraX;
     if (rectsOverlap({x:px,y:p.y,w:p.w,h:p.h},{x:sx,y:pu.y,w:pu.w,h:pu.h})) {
       pu.taken = true;
-      p.gun = { type: pu.type, ammo: GUN_DEFS[pu.type].ammo };
+      p.gun = { type: pu.type, ammo: Infinity };
       p.gunCooldown = 0;
       GS.announceText = GUN_DEFS[pu.type].label;
       GS.announceAlpha = 1.2;
