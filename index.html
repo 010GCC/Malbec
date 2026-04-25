@@ -311,6 +311,42 @@
     color: rgba(255,255,255,0.6);
   }
   #orient-warn .big { font-size: 32px; margin-bottom: 8px; }
+  .phone-wrap {
+    width: 80px; height: 80px;
+    display: flex; align-items: center; justify-content: center;
+    margin-bottom: 8px;
+    animation: phone-rotate 2s ease-in-out infinite;
+  }
+  @keyframes phone-rotate {
+    0%   { transform: rotate(0deg); }
+    40%  { transform: rotate(0deg); }
+    65%  { transform: rotate(90deg); }
+    90%  { transform: rotate(90deg); }
+    100% { transform: rotate(0deg); }
+  }
+  .phone-body {
+    width: 32px; height: 56px;
+    border: 3px solid rgba(255,255,255,0.75);
+    border-radius: 7px;
+    position: relative;
+    background: rgba(255,255,255,0.05);
+  }
+  .phone-body::before {
+    content: '';
+    position: absolute;
+    top: 5px; left: 50%; transform: translateX(-50%);
+    width: 10px; height: 3px;
+    background: rgba(255,255,255,0.4);
+    border-radius: 2px;
+  }
+  .phone-body::after {
+    content: '';
+    position: absolute;
+    bottom: 5px; left: 50%; transform: translateX(-50%);
+    width: 12px; height: 12px;
+    border: 2px solid rgba(255,255,255,0.35);
+    border-radius: 50%;
+  }
   @media (orientation: portrait) {
     #orient-warn { display: flex; }
   }
@@ -393,7 +429,7 @@
 
 <!-- Orientation warning -->
 <div id="orient-warn">
-  <div class="big">↻</div>
+  <div class="phone-wrap"><div class="phone-body"></div></div>
   <div>ROTATE YOUR DEVICE</div>
   <div style="font-size:11px;opacity:0.4;">LANDSCAPE ONLY</div>
 </div>
@@ -2723,9 +2759,9 @@ function doRestart() {
   requestAnimationFrame(gameLoop);
 }
 document.getElementById('start-btn').addEventListener('click', doStart);
-document.getElementById('start-btn').addEventListener('touchstart', e => { e.preventDefault(); doStart(); }, {passive: false});
+document.getElementById('start-btn').addEventListener('touchend', e => { e.preventDefault(); doStart(); }, {passive: false});
 document.getElementById('restart-btn').addEventListener('click', doRestart);
-document.getElementById('restart-btn').addEventListener('touchstart', e => { e.preventDefault(); doRestart(); }, {passive: false});
+document.getElementById('restart-btn').addEventListener('touchend', e => { e.preventDefault(); doRestart(); }, {passive: false});
 
 // ── Boss level transition warning ─────────────
 function checkBossWarning() {
