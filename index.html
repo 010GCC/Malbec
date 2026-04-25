@@ -73,6 +73,13 @@
     color: rgba(255,255,255,0.6);
     letter-spacing: 1px;
   }
+  #gem-display {
+    font-family: 'Share Tech Mono', monospace;
+    font-size: 13px;
+    color: rgba(100,220,255,0.8);
+    letter-spacing: 1px;
+    margin-top: 2px;
+  }
   #hud-right {
     text-align: right;
     font-family: 'Share Tech Mono', monospace;
@@ -323,6 +330,7 @@
       </div>
       <div id="hearts-row"></div>
       <div id="score-display">SCORE: <span id="score-val">0</span></div>
+      <div id="gem-display">&#9671; <span id="gem-val">0</span></div>
     </div>
     <div id="world-name-display"></div>
     <div id="hud-right">
@@ -423,7 +431,6 @@ const SPIKE_DMG = 15; // % per second
 const WORLD_SCROLL_SPEED = 220;
 const BULLET_SPEED = 620;
 const GUN_DEFS = {
-  laser:         { ammo: Infinity, cooldown: 0.13, color: '#00eeff', label: 'LASER',        dmg: 1 },
   spread:        { ammo: 24,       cooldown: 0.38, color: '#ffaa00', label: 'SPREAD',       dmg: 1 },
   spread_bounce: { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SPREAD BOUNCE',dmg: 1 },
   bounce:        { ammo: 14,       cooldown: 0.22, color: '#aaffaa', label: 'RICOCHET',     dmg: 2 },
@@ -637,6 +644,7 @@ function resetGame() {
     state: 'playing', // playing | dimensional | boss | transition | gameover | title
     level: 1,
     score: 0,
+    gems: 0,
     world: generateWorld(),
     levelTimer: 0,
     levelTime: 60, // seconds
@@ -665,7 +673,7 @@ function resetGame() {
       attackHitbox: null,
       isGrounded: false,
       onFloor: false,
-      gun: { type: 'laser', ammo: Infinity },
+      gun: { type: 'spread', ammo: Infinity },
       gunCooldown: 0,
       isEvading: false,
       evadeTimer: 0,
@@ -679,8 +687,7 @@ function resetGame() {
     // Platforms and floor
     platforms: [],
     spikes: [],
-    lavaActive: false,
-    lavaTimer: 0,
+
     // Enemies
     enemies: [],
     enemySpawnTimer: 0,
@@ -745,19 +752,18 @@ function generateLevel() {
   GS.bullets = [];
   GS.weaponPickups = [];
   GS.railBeam = null;
-  GS.player.gun = { type: 'laser', ammo: Infinity };
+  GS.player.gun = { type: 'spread', ammo: Infinity };
   GS.player.gunCooldown = 0;
   GS.dimDoor = null;
   GS.dimDoorActive = false;
   GS.cameraX = 0;
   GS.distanceTraveled = 0;
   GS.levelTimer = 0;
-  GS.lavaActive = false;
-  GS.lavaTimer = 0;
   GS.screenCracks = [];
   GS.screenDistortion = 0;
   GS.boss = null;
   GS.dimRoom.active = false;
+  GS.worldReveal = 0;
 
   // Generate world
   if (GS.level % 3 === 1) GS.world = generateWorld();
@@ -779,7 +785,7 @@ function generateLevel() {
   }
 
   // Weapon pickups — 2 random drops spaced across the level
-  const gunPool = ['spread','spread_bounce','bounce','railgun','homing_spread'];
+  const gunPool = ['spread_bounce','bounce','railgun','homing_spread'];
   const pick1 = pick(gunPool);
   let pick2 = pick(gunPool);
   while (pick2 === pick1) pick2 = pick(gunPool);
@@ -888,8 +894,9 @@ function updateHUD() {
     badge.textContent = '\u00d7' + prestige;
     hr.appendChild(badge);
   }
-  // Score
+  // Score + gems
   document.getElementById('score-val').textContent = GS.score.toLocaleString();
+  document.getElementById('gem-val').textContent = GS.gems;
   document.getElementById('level-label').textContent = `LEVEL ${GS.level}`;
   // World name
   document.getElementById('world-name-display').textContent = GS.world.name;
@@ -917,10 +924,6 @@ function updatePlayer(dt) {
   if (p.slideTimer > 0) p.slideTimer -= dt;
   if (p.flashTimer > 0) p.flashTimer -= dt;
 
-  // Lava floor: if active, only the actual floor is lava — platforms are safe
-  if (GS.lavaActive && p.onFloor && !p.isGold) {
-    takeDamage(SPIKE_DMG * dt * 0.5);
-  }
 
   // Dash
   if (p.isDashing) {
@@ -1090,9 +1093,8 @@ function sfxShoot(type) {
   const o = ctx2.createOscillator();
   const g = ctx2.createGain();
   o.connect(g); g.connect(ctx2.destination);
-  if (type === 'laser')         { o.frequency.setValueAtTime(880,0); o.frequency.exponentialRampToValueAtTime(220,0.08); g.gain.setValueAtTime(0.15,0); g.gain.exponentialRampToValueAtTime(0.001,0.1); }
-  else if (type === 'railgun')  { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); }
-  else                          { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); }
+  if (type === 'railgun')  { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); }
+  else                     { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); }
   o.type = 'sawtooth';
   o.start(); o.stop(ctx2.currentTime + 0.3);
 }
@@ -1106,7 +1108,7 @@ function fireGun() {
   const p = GS.player;
   const def = GUN_DEFS[p.gun.type];
   if (p.gunCooldown > 0) return;
-  if (p.gun.ammo <= 0) { p.gun = { type: 'laser', ammo: Infinity }; return; }
+  if (p.gun.ammo <= 0) { p.gun = { type: 'spread', ammo: Infinity }; return; }
   p.gunCooldown = def.cooldown;
   if (p.gun.ammo !== Infinity) p.gun.ammo--;
 
@@ -1115,13 +1117,9 @@ function fireGun() {
   const dir = p.facing;
   const t = p.gun.type;
 
-  if (t === 'laser') {
+  if (t === 'spread') {
+    // increase pellet count (e.g. -2 to 2) when overall mechanics are better
     spawnBullet(bx, by, dir * BULLET_SPEED, 0, t, 0);
-  } else if (t === 'spread') {
-    for (let a = -2; a <= 2; a++) {
-      const ang = a * 0.18;
-      spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 0);
-    }
   } else if (t === 'spread_bounce') {
     for (let a = -2; a <= 2; a++) {
       const ang = a * 0.18;
@@ -1138,6 +1136,7 @@ function fireGun() {
         if (e.y + e.h > hitBand.y && e.y < hitBand.y + hitBand.h) {
           e.hp = 0; e.alive = false;
           GS.score += 200;
+          if (Math.random() < 0.25) GS.gems += randInt(1, 3);
           spawnParticles(ex+e.w/2, e.y+e.h/2, 20, {color:'#ffff44',speedMin:80,speedMax:350,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:7,upBias:60});
         }
       }
@@ -1206,12 +1205,40 @@ function updateBullets(dt) {
         if (e.hp <= 0) {
           e.alive = false;
           GS.score += 200;
+          if (Math.random() < 0.25) GS.gems += randInt(1, 3);
           spawnParticles(ex+e.w/2, e.y+e.h/2, 14, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
           updateHUD();
         }
         // Railgun pierces; others die on hit
         if (b.gunType !== 'railgun') { b.alive = false; }
         break;
+      }
+    }
+
+    // Boss hit
+    if (b.alive && GS.boss && GS.boss.alive && !GS.boss.dying) {
+      const boss = GS.boss;
+      const bsx = boss.x - GS.cameraX;
+      if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:bsx,y:boss.y,w:boss.w,h:boss.h})) {
+        spawnParticles(sx, b.y, 6, {color:GUN_DEFS[b.gunType].color,speedMin:60,speedMax:200,lifeMin:0.1,lifeMax:0.3,sizeMin:2,sizeMax:4,upBias:30});
+        const zone = b.y < boss.y + boss.h*0.35 ? 'head'
+                   : b.y < boss.y + boss.h*0.68 ? 'body' : 'legs';
+        if (zone === 'head') {
+          boss.headHits++;
+          if (boss.headHits >= boss.headHP) { boss.alive = false; boss.dying = true; sfxBossDeath(); }
+        } else if (zone === 'body') {
+          boss.bodyHits++;
+          if (boss.bodyHits >= boss.bodyHP) { boss.alive = false; boss.dying = true; sfxBossDeath(); }
+        } else {
+          boss.legHits++;
+          if (boss.legHits >= boss.legHP && !boss.legless) {
+            boss.legless = true; boss.vx = 0; sfxBoss();
+            spawnParticles(bsx+boss.w/2, boss.y+boss.h, 20, {color:'#ffffff',speedMin:100,speedMax:400,lifeMin:0.4,lifeMax:0.9,sizeMin:2,sizeMax:6});
+          }
+        }
+        GS.score += 100;
+        boss.headHits + boss.bodyHits + boss.legHits > 0 && updateHUD();
+        if (b.gunType !== 'railgun') b.alive = false;
       }
     }
   }
@@ -1221,12 +1248,11 @@ function updateBullets(dt) {
 }
 
 function updateWeaponPickups(dt) {
+  if (GS.worldReveal >= 0 && GS.worldReveal < 0.8) return; // wait for overlay to clear
   const p = GS.player;
-  const px = p.x; // screen coords
   for (const pu of GS.weaponPickups) {
     if (pu.taken) continue;
-    const sx = pu.wx - GS.cameraX;
-    if (rectsOverlap({x:px,y:p.y,w:p.w,h:p.h},{x:sx,y:pu.y,w:pu.w,h:pu.h})) {
+    if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:pu.wx,y:pu.y,w:pu.w,h:pu.h})) {
       pu.taken = true;
       p.gun = { type: pu.type, ammo: Infinity };
       p.gunCooldown = 0;
@@ -1244,9 +1270,7 @@ function renderBullets() {
     ctx.shadowColor = col;
     ctx.shadowBlur = 8;
     ctx.fillStyle = col;
-    if (b.gunType === 'laser') {
-      ctx.fillRect(sx - 8, b.y - 2, 16, 4);
-    } else if (b.gunType === 'railgun') {
+    if (b.gunType === 'railgun') {
       ctx.fillRect(sx - 6, b.y - 3, 12, 6);
     } else {
       ctx.beginPath();
@@ -1412,6 +1436,7 @@ function updateEnemies(dt) {
         if (e.hp <= 0) {
           e.alive = false;
           GS.score += 150;
+          if (Math.random() < 0.25) GS.gems += randInt(1, 3);
           spawnParticles(ex+e.w/2, e.y+e.h/2, 16, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
           updateHUD();
         }
@@ -1428,7 +1453,7 @@ function rectsOverlap(a, b) {
 
 // ── Boss Update ───────────────────────────────
 function updateBoss(dt) {
-  if (!GS.boss || !GS.boss.alive || GS.boss.dead) return;
+  if (!GS.boss || GS.boss.dead) return;
   const boss = GS.boss;
   const p = GS.player;
   const fw = FLOOR_Y();
@@ -1441,6 +1466,10 @@ function updateBoss(dt) {
       boss.dead = true;
       triggerBossDeath();
     }
+    return;
+  }
+
+  if (!boss.alive) return;
     return;
   }
 
@@ -1723,7 +1752,7 @@ function enterDimensionalRoom() {
   const dr = GS.dimRoom;
   dr.active = true;
   dr.wave = 0;
-  dr.totalWaves = Math.min(2 + Math.floor(GS.level/3), 5);
+  dr.totalWaves = 4; // head wave, torso wave, legs wave, final mixed
   dr.enemies = [];
   dr.phase = 'wave';
   dr.previewTimer = 0;
@@ -1741,17 +1770,23 @@ function enterDimensionalRoom() {
 function spawnDimWave() {
   const dr = GS.dimRoom;
   dr.enemies = [];
-  dr.spawnTimer = 0;
-  const isFinal = (dr.wave === dr.totalWaves - 1);
-  const count = isFinal ? 3 : randInt(3,6);
   const pal = GS.world.palette;
   const cx = canvas.width/2, cy = canvas.height/2;
 
-  const types = isFinal ? ['head','legs','torso'] : ['head','legs','torso'];
-  for (let i=0; i<count; i++) {
-    const type = isFinal ? types[i%3] : pick(types);
-    const angle = (i/count) * Math.PI*2;
-    const dist = rand(150,280);
+  // wave 0=heads, 1=torsos, 2=legs, 3=final(one each, circling)
+  const waveTypes = [
+    ['head','head','head'],
+    ['torso','torso','torso'],
+    ['legs','legs','legs'],
+    ['head','torso','legs'],
+  ];
+  const types = waveTypes[Math.min(dr.wave, 3)];
+  const isFinal = dr.wave === 3;
+
+  for (let i=0; i<types.length; i++) {
+    const type = types[i];
+    const angle = (i/types.length) * Math.PI*2;
+    const dist = isFinal ? 180 : rand(150,260);
     dr.enemies.push({
       type,
       x: cx + Math.cos(angle)*dist,
@@ -1762,6 +1797,7 @@ function spawnDimWave() {
       hp: type==='torso'?4:2,
       hitFlash: 0,
       alive: true,
+      orbit: isFinal ? { angle: angle, radius: 180, speed: 1.2 } : null,
       sprite: genSprite(randInt(1,99999), type==='torso'?52:28, 28, pal),
     });
   }
@@ -1802,14 +1838,22 @@ function updateDimensionalRoom(dt) {
     if (!e.alive) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
 
-    // Chase player
-    const dx = p.x - e.x, dy = p.y - e.y;
-    const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-    const speed = e.type==='torso' ? 60 : (e.type==='head'?110:90);
-    e.vx = (dx/dist)*speed;
-    e.vy = (dy/dist)*speed;
-    e.x += e.vx * dt;
-    e.y += e.vy * dt;
+    // Move — final wave orbits, others chase
+    if (e.orbit) {
+      e.orbit.angle += e.orbit.speed * dt;
+      const tx = p.x + Math.cos(e.orbit.angle) * e.orbit.radius;
+      const ty = p.y + Math.sin(e.orbit.angle) * e.orbit.radius;
+      e.x = lerp(e.x, tx, 0.08);
+      e.y = lerp(e.y, ty, 0.08);
+    } else {
+      const dx = p.x - e.x, dy = p.y - e.y;
+      const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+      const speed = e.type==='torso' ? 60 : (e.type==='head'?110:90);
+      e.vx = (dx/dist)*speed;
+      e.vy = (dy/dist)*speed;
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+    }
 
     // Boundary
     e.x = clamp(e.x, 40, canvas.width-40-e.w);
@@ -1831,6 +1875,7 @@ function updateDimensionalRoom(dt) {
       if (e.hp <= 0) {
         e.alive = false;
         GS.score += 200;
+        if (Math.random() < 0.25) GS.gems += randInt(1, 3);
         spawnParticles(e.x+e.w/2, e.y+e.h/2, 14, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
         updateHUD();
       }
@@ -1849,7 +1894,9 @@ function updateDimensionalRoom(dt) {
       GS.announceText = 'BOSS SILHOUETTE DETECTED';
       GS.announceAlpha = 2;
     } else {
-      setTimeout(()=>spawnDimWave(), 600);
+      const nextLabel = ['HEADS', 'TORSOS', 'LEGS', 'ALL THREE'][dr.wave] || '';
+      if (nextLabel) { GS.announceText = nextLabel; GS.announceAlpha = 1.5; }
+      setTimeout(()=>spawnDimWave(), 900);
     }
   }
 }
@@ -1862,13 +1909,28 @@ function exitDimensionalRoom(doorType) {
   const p = GS.player;
   p.hearts = Math.min(p.hearts + 1, p.maxHearts);
   sfxHeart();
+
+  // Tier-scaled gem cache awarded on exit
+  const tier = GS.level <= 3 ? 'low' : GS.level <= 6 ? 'mid' : 'high';
+  const gemCache = tier === 'low' ? 5 : tier === 'mid' ? 12 : 20;
+  GS.gems += gemCache;
+
+  // Gem spend: upgrades door reward, then resets gems
   if (doorType === 'A') {
-    // Invincibility
     p.isGold = true;
-    p.invBudget = p.invMax;
-    GS.announceText = 'INVINCIBLE';
+    p.invBudget = GS.gems >= 20 ? p.invMax * 2 : p.invMax;
+    GS.announceText = GS.gems >= 20 ? 'DOUBLE INVINCIBLE' : 'INVINCIBLE';
     GS.announceAlpha = 2;
+  } else {
+    // Door B: gems >= 10 adds a partial inv budget
+    if (GS.gems >= 10) {
+      p.isGold = true;
+      p.invBudget = p.invMax * 0.5;
+      GS.announceText = 'HEART + SHIELD';
+      GS.announceAlpha = 2;
+    }
   }
+  GS.gems = 0;
   updateHUD();
 }
 
@@ -1915,30 +1977,19 @@ function updateParticles(dt) {
   if (GS.particles.length > 600) GS.particles = GS.particles.filter(p=>p.active).slice(-400);
 }
 
-// ── Lava Events ───────────────────────────────
-function updateLavaEvent(dt) {
-  GS.lavaTimer -= dt;
-  if (GS.lavaTimer <= 0) {
-    GS.lavaActive = !GS.lavaActive;
-    GS.lavaTimer = GS.lavaActive ? rand(3,7) : rand(5,12);
-    if (GS.lavaActive) {
-      GS.announceText = 'FLOOR IS LAVA';
-      GS.announceAlpha = 1.5;
-    }
-  }
-}
-
 // ── Dim Door Check ─────────────────────────────
 function checkDimDoor(dt) {
   if (!GS.dimDoorActive || !GS.dimDoor) return;
   const p = GS.player;
   const door = GS.dimDoor;
-  const dx = door.x - GS.cameraX;
-  const overlap = rectsOverlap(
-    {x:p.x-2, y:p.y, w:p.w+4, h:p.h},
-    {x:dx-20, y:door.y-30, w:door.w+40, h:door.h+60}
-  );
-  if (overlap && (Keys.just['ArrowUp'] || Keys.just['KeyW'])) {
+  const pBox = {x:p.x-2, y:p.y, w:p.w+4, h:p.h};
+  const dBox = {x:door.x-20, y:door.y-30, w:door.w+40, h:door.h+60};
+  const overlap = rectsOverlap(pBox, dBox);
+
+  const holdingUp   = Keys.held['ArrowUp']   || Keys.held['KeyW'];
+  const movingSide  = Keys.held['ArrowLeft']  || Keys.held['KeyA'] || Keys.held['ArrowRight'] || Keys.held['KeyD'];
+
+  if (overlap && holdingUp && !movingSide) {
     enterDimensionalRoom();
   }
 }
@@ -2025,29 +2076,16 @@ function renderFloor() {
   const W = canvas.width, H = canvas.height;
   const fw = FLOOR_Y();
 
-  // Lava glow
-  if (GS.lavaActive) {
-    const lavaGrad = ctx.createLinearGradient(0, fw, 0, H);
-    lavaGrad.addColorStop(0, 'rgba(255,80,0,0.7)');
-    lavaGrad.addColorStop(0.3, 'rgba(200,20,0,0.5)');
-    lavaGrad.addColorStop(1, '#000');
-    ctx.fillStyle = lavaGrad;
-    ctx.fillRect(0, fw, W, H-fw);
-    // Lava surface pulse
-    ctx.fillStyle = `rgba(255,${Math.floor(100+80*Math.sin(GS.levelTimer*4))},0,0.9)`;
-    ctx.fillRect(0, fw, W, 6);
-  } else {
-    // Normal floor
-    const fGrad = ctx.createLinearGradient(0, fw, 0, H);
-    fGrad.addColorStop(0, pal.ground);
-    fGrad.addColorStop(0.15, darken(pal.ground, 0.3));
-    fGrad.addColorStop(1, '#000');
-    ctx.fillStyle = fGrad;
-    ctx.fillRect(0, fw, W, H-fw);
-    // Floor top line
-    ctx.fillStyle = lighten(pal.ground, 0.2);
-    ctx.fillRect(0, fw, W, 3);
-  }
+  // Floor
+  const fGrad = ctx.createLinearGradient(0, fw, 0, H);
+  fGrad.addColorStop(0, pal.ground);
+  fGrad.addColorStop(0.15, darken(pal.ground, 0.3));
+  fGrad.addColorStop(1, '#000');
+  ctx.fillStyle = fGrad;
+  ctx.fillRect(0, fw, W, H-fw);
+  // Floor top line
+  ctx.fillStyle = lighten(pal.ground, 0.2);
+  ctx.fillRect(0, fw, W, 3);
 
   // Spikes
   for (const sp of GS.spikes) {
@@ -2565,7 +2603,6 @@ function update(dt) {
   updateParticles(dt);
   updateBullets(dt);
   updateWeaponPickups(dt);
-  updateLavaEvent(dt);
   checkDimDoor(dt);
   checkLevelComplete();
   checkBossWarning();
@@ -2601,13 +2638,10 @@ function render() {
   renderPlatforms();
   renderDimDoor();
 
-  // Monumental world name in world space (after boss transition)
+  // Monumental world name in world space — player walks through it
   if (GS.worldReveal >= 0) {
     renderMonumentalText();
   }
-
-  // Weapon pickups
-  renderWeaponPickups();
 
   // Enemies
   for (const e of GS.enemies) renderEnemy(e);
@@ -2633,6 +2667,11 @@ function render() {
     const revAlpha = Math.max(0, 1 - GS.worldReveal * 1.25);
     ctx.fillStyle = `rgba(0,0,0,${revAlpha})`;
     ctx.fillRect(0, 0, W, H);
+  }
+
+  // Weapon pickups render on top of overlay so icons are always visible
+  if (GS.worldReveal < 0 || GS.worldReveal >= 0.8) {
+    renderWeaponPickups();
   }
 }
 
