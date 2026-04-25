@@ -108,22 +108,17 @@
     z-index: 50;
   }
   .overlay.hidden { display: none; }
-  #title-screen { background: #000; }
-  #title-screen h1 {
-    font-family: 'Chakra Petch', sans-serif;
-    font-size: clamp(3rem, 8vw, 6rem);
-    font-weight: 700;
-    letter-spacing: 0.2em;
-    color: #fff;
-    text-transform: uppercase;
-    margin-bottom: 12px;
+  #title-screen {
+    background: transparent;
+    justify-content: flex-end;
+    padding-bottom: 12%;
   }
   #title-screen .sub {
     font-size: 13px;
     letter-spacing: 4px;
     color: rgba(255,255,255,0.35);
     text-transform: uppercase;
-    margin-bottom: 60px;
+    margin-bottom: 40px;
   }
   .start-btn {
     font-family: 'Chakra Petch', sans-serif;
@@ -392,7 +387,6 @@
 
 <!-- Overlays outside #ui so pointer-events work on mobile -->
 <div class="overlay" id="title-screen">
-  <h1>MALBEC</h1>
   <p class="sub">A World That Has Never Existed Before</p>
   <button class="start-btn" id="start-btn">ENTER</button>
 </div>
@@ -1506,8 +1500,6 @@ function updateBoss(dt) {
   }
 
   if (!boss.alive) return;
-    return;
-  }
 
   boss.phaseTimer += dt;
   boss.attackTimer -= dt;
@@ -2741,6 +2733,7 @@ function renderMonumentalText() {
 
 // ── Start / Restart ────────────────────────────
 function doStart() {
+  stopTitleAnim();
   initAudio();
   document.getElementById('title-screen').classList.add('hidden');
   resetGame();
@@ -2790,9 +2783,164 @@ document.addEventListener('touchmove',   e => e.preventDefault(), {passive: fals
 document.addEventListener('gesturestart',e => e.preventDefault(), {passive: false});
 document.addEventListener('gesturechange',e=> e.preventDefault(), {passive: false});
 
-// On load: fonts ready
+// ── Title Screen Animation ─────────────────────
+let titleRAF = null;
+let titleState = null;
+
+function startTitleAnim() {
+  const pal = { accent: '#cc44ff' };
+  titleState = {
+    t: 0, lastTs: null,
+    char: { x: -50, facing: 1, walkPhase: 0, shootTimer: 0.8 },
+    bullets: [],
+    malbecAlpha: 0,
+    staticAlpha: 0,
+    staticTimer: rand(4, 7),
+    sprite: genSprite(7777, 28, 48, pal),
+    noiseCanvas: null,
+  };
+  titleRAF = requestAnimationFrame(titleFrame);
+}
+
+function stopTitleAnim() {
+  if (titleRAF) { cancelAnimationFrame(titleRAF); titleRAF = null; }
+  titleState = null;
+}
+
+function titleFrame(ts) {
+  if (!titleState) return;
+  titleRAF = requestAnimationFrame(titleFrame);
+  const W = canvas.width, H = canvas.height;
+  const dt = Math.min(0.05, titleState.lastTs ? (ts - titleState.lastTs) / 1000 : 0.016);
+  titleState.lastTs = ts;
+  const s = titleState;
+  s.t += dt;
+
+  // Background
+  ctx.fillStyle = '#000';
+  ctx.fillRect(0, 0, W, H);
+  const bg = ctx.createRadialGradient(W/2, H * 0.42, 0, W/2, H * 0.42, W * 0.65);
+  bg.addColorStop(0, 'rgba(90,0,140,0.55)');
+  bg.addColorStop(0.55, 'rgba(40,0,70,0.28)');
+  bg.addColorStop(1, 'rgba(0,0,0,0)');
+  ctx.fillStyle = bg;
+  ctx.fillRect(0, 0, W, H);
+
+  // MALBEC — slow fade in, dual-pass purple+magenta glow
+  s.malbecAlpha = Math.min(1, s.malbecAlpha + dt * 0.22);
+  const fontSize = Math.min(W * 0.13, 96);
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.textBaseline = 'middle';
+  ctx.font = `700 ${fontSize}px 'Chakra Petch', sans-serif`;
+  const titleY = H * 0.38;
+  // Purple glow
+  ctx.globalAlpha = s.malbecAlpha;
+  ctx.shadowColor = '#cc44ff';
+  ctx.shadowBlur = 45 + 22 * Math.sin(s.t * 1.7);
+  ctx.fillStyle = '#ffffff';
+  ctx.fillText('MALBEC', W / 2, titleY);
+  // Magenta overlay
+  ctx.shadowColor = '#ff44cc';
+  ctx.shadowBlur = 22 + 12 * Math.sin(s.t * 2.4 + 1.2);
+  ctx.globalAlpha = s.malbecAlpha * 0.38;
+  ctx.fillStyle = '#ff99ff';
+  ctx.fillText('MALBEC', W / 2, titleY);
+  ctx.restore();
+
+  // Floor level for character + bullets
+  const floorY = H * 0.80;
+  const charW = 28, charH = 48;
+
+  // Character walk
+  const c = s.char;
+  c.x += 88 * c.facing * dt;
+  c.walkPhase += dt * 10;
+  if (c.x > W + 60) { c.x = W + 60; c.facing = -1; }
+  if (c.x < -60)    { c.x = -60;    c.facing =  1; }
+  const bobY = floorY - charH + Math.abs(Math.sin(c.walkPhase)) * 5;
+
+  ctx.save();
+  ctx.shadowColor = '#cc44ff';
+  ctx.shadowBlur = 12;
+  if (c.facing < 0) {
+    ctx.translate(c.x + charW, bobY);
+    ctx.scale(-1, 1);
+    ctx.drawImage(s.sprite, 0, 0, charW, charH);
+  } else {
+    ctx.drawImage(s.sprite, c.x, bobY, charW, charH);
+  }
+  ctx.restore();
+
+  // Shoot bouncing bullets
+  c.shootTimer -= dt;
+  if (c.shootTimer <= 0 && s.bullets.length < 22) {
+    c.shootTimer = rand(0.65, 1.3);
+    s.bullets.push({
+      x: c.x + (c.facing > 0 ? charW + 2 : -4),
+      y: bobY + charH * 0.38,
+      vx: c.facing * rand(180, 320),
+      vy: rand(-220, 60),
+      col: Math.random() < 0.55 ? '#cc44ff' : '#ff44cc',
+      life: rand(5, 9),
+    });
+  }
+
+  // Update + draw bullets — pure bounce, no gravity
+  for (const b of s.bullets) {
+    b.x += b.vx * dt;
+    b.y += b.vy * dt;
+    b.life -= dt;
+    if (b.x < 5)      { b.x = 5;        b.vx =  Math.abs(b.vx); }
+    if (b.x > W - 5)  { b.x = W - 5;    b.vx = -Math.abs(b.vx); }
+    if (b.y < 8)      { b.y = 8;        b.vy =  Math.abs(b.vy); }
+    if (b.y > floorY) { b.y = floorY;   b.vy = -Math.abs(b.vy); }
+    ctx.save();
+    ctx.globalAlpha = Math.min(1, b.life * 0.35);
+    ctx.shadowColor = b.col;
+    ctx.shadowBlur = 16;
+    ctx.fillStyle = b.col;
+    ctx.beginPath();
+    ctx.arc(b.x, b.y, 3.5, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+  }
+  s.bullets = s.bullets.filter(b => b.life > 0);
+
+  // Static bursts — purple-tinted low-res noise scaled up
+  s.staticTimer -= dt;
+  if (s.staticTimer <= 0) {
+    s.staticAlpha = 0.92;
+    s.staticTimer = rand(4, 8);
+  }
+  if (s.staticAlpha > 0) {
+    if (!s.noiseCanvas) {
+      s.noiseCanvas = document.createElement('canvas');
+      s.noiseCanvas.width = 160;
+      s.noiseCanvas.height = 90;
+    }
+    const nc = s.noiseCanvas.getContext('2d');
+    const img = nc.createImageData(160, 90);
+    const d = img.data;
+    for (let i = 0; i < d.length; i += 4) {
+      const v = Math.random() * 255;
+      d[i]   = Math.floor(v * 0.65);
+      d[i+1] = Math.floor(v * 0.05);
+      d[i+2] = Math.floor(v * 0.95);
+      d[i+3] = Math.floor(s.staticAlpha * 255);
+    }
+    nc.putImageData(img, 0, 0);
+    ctx.save();
+    ctx.imageSmoothingEnabled = false;
+    ctx.drawImage(s.noiseCanvas, 0, 0, W, H);
+    ctx.restore();
+    s.staticAlpha = Math.max(0, s.staticAlpha - dt * 3.5);
+  }
+}
+
+// On load: fonts ready — start title animation
 document.fonts.ready.then(() => {
-  // Ready indicator
+  startTitleAnim();
 });
 
 </script>
