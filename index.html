@@ -6,7 +6,7 @@
 <title>MALBEC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@900&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@900&family=Rubik+Distressed&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -438,7 +438,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.2';
+const VERSION = '1.6.3';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -769,6 +769,7 @@ function resetGame() {
     pickupPrompt: null,
     // World transition progressive reveal (-1 = idle, 0-1 = revealing)
     worldReveal: -1,
+    worldNameFadeT: 0,
     cinematic: null,
   };
 
@@ -802,6 +803,7 @@ function generateLevel() {
   GS.boss = null;
   GS.dimRoom.active = false;
   GS.worldReveal = 0;
+  GS.worldNameFadeT = 0;
 
   // Generate world
   if (GS.level % 3 === 1) GS.world = generateWorld();
@@ -1758,6 +1760,7 @@ function updateCinematic(dt) {
       generateLevel();
       GS.state = 'playing';
       GS.worldReveal = 0;
+      GS.worldNameFadeT = 0;
       GS.player.x = 120;
       GS.player.y = FLOOR_Y() - GS.player.h;
       GS.player.vx = 0;
@@ -2723,6 +2726,10 @@ function update(dt) {
   if (GS.worldReveal >= 0 && GS.worldReveal < 1) {
     GS.worldReveal = Math.min(1, GS.worldReveal + dt * 0.22);
   }
+  // Level name fade-out timer (1.5s, starts once reveal >= 0.7)
+  if (GS.worldReveal >= 0.7) {
+    GS.worldNameFadeT = Math.min(1.5, GS.worldNameFadeT + dt);
+  }
 
   // Playing / boss
   updatePlayer(dt);
@@ -2810,15 +2817,14 @@ function renderMonumentalText() {
   const W = canvas.width, H = canvas.height;
   const reveal = GS.worldReveal;
 
-  // Ease-in: smoothstep, starts early, takes most of the reveal window
+  // Ease-in: smoothstep
   const tIn = clamp((reveal - 0.05) / 0.75, 0, 1);
   const easeIn = tIn * tIn * (3 - 2 * tIn);
 
-  // Ease-out: smoothstep driven by player movement, fades over first 400px
-  const tOut = clamp(GS.distanceTraveled / 400, 0, 1);
-  const easeOut = 1 - tOut * tOut * (3 - 2 * tOut);
+  // Ease-out: 1.5s time-based linear fade
+  const fadeOut = 1 - clamp(GS.worldNameFadeT / 1.5, 0, 1);
 
-  const alpha = easeIn * easeOut * 0.92;
+  const alpha = easeIn * fadeOut * 0.38;
   if (alpha <= 0.01) return;
 
   // Text in world space — player walks through it
@@ -2828,15 +2834,12 @@ function renderMonumentalText() {
 
   ctx.save();
   ctx.globalAlpha = alpha;
-  const fontSize = Math.floor(H * 0.28);
-  ctx.font = `900 ${fontSize}px 'Orbitron', sans-serif`;
+  const fontSize = Math.floor(H * 0.18);
+  ctx.font = `${fontSize}px 'Rubik Distressed', sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.fillStyle = GS.world.palette.accent;
-  ctx.shadowColor = GS.world.palette.accent;
-  ctx.shadowBlur = 40;
   ctx.fillText(GS.world.name, sx, H * 0.5);
-  ctx.shadowBlur = 0;
   ctx.restore();
 }
 
