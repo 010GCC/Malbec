@@ -193,19 +193,7 @@
     text-align: center;
   }
   #world-name-display {
-    position: absolute;
-    top: 50%;
-    left: 50%;
-    transform: translate(-50%,-50%);
-    font-family: 'Chakra Petch', sans-serif;
-    font-size: clamp(2rem, 7vw, 5rem);
-    font-weight: 700;
-    letter-spacing: 0.3em;
-    color: rgba(255,255,255,0.08);
-    pointer-events: none;
-    z-index: 1;
-    white-space: nowrap;
-    text-transform: uppercase;
+    display: none;
   }
   #boss-warning {
     position: absolute;
@@ -438,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.4';
+const VERSION = '1.6.5';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -2740,10 +2728,6 @@ function update(dt) {
   if (GS.worldReveal >= 0 && GS.worldReveal < 1) {
     GS.worldReveal = Math.min(1, GS.worldReveal + dt * 0.22);
   }
-  // Level name fade-out timer (1.5s, starts once reveal >= 0.7)
-  if (GS.worldReveal >= 0.7) {
-    GS.worldNameFadeT = Math.min(1.5, GS.worldNameFadeT + dt);
-  }
 
   // Playing / boss
   updatePlayer(dt);
@@ -2809,10 +2793,6 @@ function render() {
   renderPickupPrompt();
   renderGunHUD();
 
-  // World name watermark (HUD layer, fades early)
-  const wnd = document.getElementById('world-name-display');
-  const wAlpha = Math.max(0, 1 - GS.levelTimer*0.04);
-  wnd.style.opacity = wAlpha;
 
   // Progressive reveal overlay (fade in from black after boss cinematic)
   if (GS.worldReveal >= 0 && GS.worldReveal < 1) {
@@ -2834,22 +2814,24 @@ function renderMonumentalText() {
   // Ease-in: smoothstep
   const tIn = clamp((reveal - 0.05) / 0.75, 0, 1);
   const easeIn = tIn * tIn * (3 - 2 * tIn);
-
-  // Ease-out: 1.5s time-based linear fade
-  const fadeOut = 1 - clamp(GS.worldNameFadeT / 1.5, 0, 1);
-
-  const alpha = easeIn * fadeOut * 0.38;
-  if (alpha <= 0.01) return;
+  if (easeIn <= 0.01) return;
 
   // Text in world space — player walks through it
   const worldX = 180;
   const sx = worldX - GS.cameraX;
-  if (sx < -W * 2 || sx > W * 1.5) return;
+  if (sx > W * 1.5) return;
 
-  ctx.save();
-  ctx.globalAlpha = alpha;
   const fontSize = Math.floor(H * 0.18);
   ctx.font = `${fontSize}px 'Rubik Distressed', sans-serif`;
+  const textW = ctx.measureText(GS.world.name).width;
+
+  // Fade only as the right edge exits the left side of the screen
+  const rightEdge = sx + textW;
+  if (rightEdge < 0) return;
+  const fadeOut = clamp(rightEdge / (W * 0.22), 0, 1);
+
+  ctx.save();
+  ctx.globalAlpha = easeIn * fadeOut * 0.38;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.fillStyle = GS.world.palette.accent;
