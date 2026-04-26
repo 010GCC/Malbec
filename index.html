@@ -438,7 +438,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.0';
+const VERSION = '1.6.1';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -467,10 +467,12 @@ const SPIKE_DMG = 2; // % per second
 const WORLD_SCROLL_SPEED = 220;
 const BULLET_SPEED = 620;
 const GUN_DEFS = {
-  scatter:       { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SCATTER',      dmg: 1 },
-  railgun:       { ammo: 7,        cooldown: 0.75, color: '#ffff44', label: 'RAILGUN',      dmg: 99 },
-  homing_spread: { ammo: 20,       cooldown: 0.45, color: '#ff44ff', label: 'SEEKER',       dmg: 1 },
+  particle_blaster: { ammo: Infinity, cooldown: 0.07, color: '#ff88ff', label: 'BLASTER',       dmg: 1 },
+  scatter:          { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SCATTER',        dmg: 1 },
+  railgun:          { ammo: 7,        cooldown: 0.75, color: '#ffff44', label: 'RAILGUN',        dmg: 99 },
+  homing_spread:    { ammo: 20,       cooldown: 0.45, color: '#ff44ff', label: 'SEEKER',         dmg: 1 },
 };
+const GLITTER = ['#ff77ff','#77ffff','#ffff77','#ff99cc','#99ffcc','#ccaaff','#ffaacc'];
 
 // ── World Identity ───────────────────────────
 const CHARACTERISTICS = [
@@ -788,7 +790,7 @@ function generateLevel() {
   GS.bullets = [];
   GS.weaponPickups = [];
   GS.railBeam = null;
-  GS.player.gun = null;
+  GS.player.gun = { type: 'particle_blaster', ammo: Infinity };
   GS.player.gunCooldown = 0;
   GS.dimDoor = null;
   GS.dimDoorActive = false;
@@ -1010,7 +1012,8 @@ function updatePlayer(dt) {
 
     // Fire gun
     if (p.gunCooldown > 0) p.gunCooldown -= dt;
-    if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
+    const pbChase = GS.player.gun?.type === 'particle_blaster' && (Keys.held['KeyJ'] || Keys.held['KeyZ']);
+    if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer || pbChase) {
       attackBuffer = false;
       fireGun();
     }
@@ -1131,15 +1134,15 @@ function sfxShoot(type) {
   const o = ctx2.createOscillator();
   const g = ctx2.createGain();
   o.connect(g); g.connect(ctx2.destination);
-  if (type === 'railgun')  { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); }
-  else                     { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); }
-  o.type = 'sawtooth';
+  if (type === 'particle_blaster') { o.frequency.setValueAtTime(1400,0); o.frequency.exponentialRampToValueAtTime(700,0.06); g.gain.setValueAtTime(0.05,0); g.gain.exponentialRampToValueAtTime(0.001,0.09); o.type = 'sine'; }
+  else if (type === 'railgun')     { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); o.type = 'sawtooth'; }
+  else                             { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); o.type = 'sawtooth'; }
   o.start(); o.stop(ctx2.currentTime + 0.3);
 }
 
 function spawnBullet(wx, y, vx, vy, gunType, bounces) {
   const def = GUN_DEFS[gunType];
-  GS.bullets.push({ wx, y, vx, vy, gunType, bounces: bounces||0, alive: true, age: 0, dmg: def.dmg });
+  GS.bullets.push({ wx, y, vx, vy, gunType, bounces: bounces||0, alive: true, age: 0, dmg: def.dmg, startWx: wx });
 }
 
 function fireGun() {
@@ -1157,7 +1160,10 @@ function fireGun() {
   const dir = p.facing;
   const t = p.gun.type;
 
-  if (t === 'scatter') {
+  if (t === 'particle_blaster') {
+    spawnBullet(bx, by, dir * BULLET_SPEED * 0.85, 0, t, 0);
+    spawnParticles(bx - GS.cameraX, by, 7, {color:GLITTER[randInt(0,GLITTER.length-1)],speedMin:20,speedMax:90,lifeMin:0.1,lifeMax:0.28,sizeMin:1,sizeMax:3,upBias:0});
+  } else if (t === 'scatter') {
     for (let a = -2; a <= 2; a++) {
       const ang = a * 0.18;
       spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 3);
@@ -1195,6 +1201,13 @@ function updateBullets(dt) {
     if (!b.alive) continue;
     b.age += dt;
     if (b.age > 4) { b.alive = false; continue; }
+
+    // Particle blaster range cap: 30% of screen width
+    if (b.gunType === 'particle_blaster' && Math.abs(b.wx - b.startWx) > W * 0.3) {
+      const sx = b.wx - GS.cameraX;
+      spawnParticles(sx, b.y, 10, {color:GLITTER[randInt(0,GLITTER.length-1)],speedMin:25,speedMax:110,lifeMin:0.1,lifeMax:0.35,sizeMin:1,sizeMax:4,upBias:0});
+      b.alive = false; continue;
+    }
 
     // Homing: steer toward nearest enemy
     if (b.gunType === 'homing_spread' && GS.enemies.length > 0) {
@@ -1234,7 +1247,8 @@ function updateBullets(dt) {
       if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:ex,y:e.y,w:e.w,h:e.h})) {
         e.hp -= b.dmg;
         e.hitFlash = 0.15;
-        spawnParticles(sx, b.y, 5, {color:GUN_DEFS[b.gunType].color,speedMin:40,speedMax:160,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3,upBias:20});
+        const hitCol = b.gunType === 'particle_blaster' ? GLITTER[randInt(0,GLITTER.length-1)] : GUN_DEFS[b.gunType].color;
+        spawnParticles(sx, b.y, b.gunType === 'particle_blaster' ? 10 : 5, {color:hitCol,speedMin:40,speedMax:160,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3,upBias:20});
         if (e.hp <= 0) {
           e.alive = false;
           GS.score += 200;
@@ -1284,25 +1298,14 @@ function updateBullets(dt) {
 function updateWeaponPickups(dt) {
   if (GS.worldReveal >= 0 && GS.worldReveal < 0.8) return;
   const p = GS.player;
-  GS.pickupPrompt = null;
   for (const pu of GS.weaponPickups) {
     if (pu.taken) continue;
     if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:pu.wx,y:pu.y,w:pu.w,h:pu.h})) {
-      if (!p.gun || p.gun.type !== pu.type) {
-        GS.pickupPrompt = pu;
-        if (Keys.just['ArrowUp'] || Keys.just['KeyW']) {
-          pu.taken = true;
-          p.gun = { type: pu.type, ammo: Infinity };
-          p.gunCooldown = 0;
-          GS.pickupPrompt = null;
-          GS.announceText = GUN_DEFS[pu.type].label;
-          GS.announceAlpha = 1.5;
-        }
-      } else {
-        // Same gun already equipped — auto-top up ammo
-        pu.taken = true;
-        p.gun.ammo = Infinity;
-      }
+      pu.taken = true;
+      p.gun = { type: pu.type, ammo: Infinity };
+      p.gunCooldown = 0;
+      GS.announceText = GUN_DEFS[pu.type].label;
+      GS.announceAlpha = 1.5;
     }
   }
 }
@@ -1312,15 +1315,31 @@ function renderBullets() {
     const sx = b.wx - GS.cameraX;
     const col = GUN_DEFS[b.gunType].color;
     ctx.save();
-    ctx.shadowColor = col;
-    ctx.shadowBlur = 8;
-    ctx.fillStyle = col;
-    if (b.gunType === 'railgun') {
-      ctx.fillRect(sx - 6, b.y - 3, 12, 6);
-    } else {
+    if (b.gunType === 'particle_blaster') {
+      const gc = GLITTER[Math.floor(b.age * 28) % GLITTER.length];
+      ctx.shadowColor = gc;
+      ctx.shadowBlur = 14;
+      ctx.fillStyle = gc;
       ctx.beginPath();
-      ctx.arc(sx, b.y, 4, 0, Math.PI*2);
+      ctx.arc(sx, b.y, 3, 0, Math.PI*2);
       ctx.fill();
+      // sparkle cross
+      ctx.strokeStyle = gc;
+      ctx.lineWidth = 1;
+      const r = 5 + Math.sin(b.age * 40) * 2;
+      ctx.beginPath(); ctx.moveTo(sx-r, b.y); ctx.lineTo(sx+r, b.y); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(sx, b.y-r); ctx.lineTo(sx, b.y+r); ctx.stroke();
+    } else {
+      ctx.shadowColor = col;
+      ctx.shadowBlur = 8;
+      ctx.fillStyle = col;
+      if (b.gunType === 'railgun') {
+        ctx.fillRect(sx - 6, b.y - 3, 12, 6);
+      } else {
+        ctx.beginPath();
+        ctx.arc(sx, b.y, 4, 0, Math.PI*2);
+        ctx.fill();
+      }
     }
     ctx.restore();
   }
