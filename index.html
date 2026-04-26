@@ -1910,8 +1910,7 @@ function updateDimensionalRoom(dt) {
       takeDamage(ENEMY_CONTACT_DMG);
     }
 
-    // Bullet hit (handled in updateBullets — no melee in dim room)
-    }
+    // Bullet hit handled in updateBullets
   }
   dr.enemies = dr.enemies.filter(e => e.alive);
 
