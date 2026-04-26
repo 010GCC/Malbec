@@ -438,7 +438,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.1';
+const VERSION = '1.6.2';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1202,8 +1202,8 @@ function updateBullets(dt) {
     b.age += dt;
     if (b.age > 4) { b.alive = false; continue; }
 
-    // Particle blaster range cap: 30% of screen width
-    if (b.gunType === 'particle_blaster' && Math.abs(b.wx - b.startWx) > W * 0.3) {
+    // Particle blaster range cap: 30% of screen width (not in dim room — bounded arena)
+    if (b.gunType === 'particle_blaster' && GS.state !== 'dimensional' && Math.abs(b.wx - b.startWx) > W * 0.3) {
       const sx = b.wx - GS.cameraX;
       spawnParticles(sx, b.y, 10, {color:GLITTER[randInt(0,GLITTER.length-1)],speedMin:25,speedMax:110,lifeMin:0.1,lifeMax:0.35,sizeMin:1,sizeMax:4,upBias:0});
       b.alive = false; continue;
@@ -1259,6 +1259,28 @@ function updateBullets(dt) {
         // Railgun pierces; others die on hit
         if (b.gunType !== 'railgun') { b.alive = false; }
         break;
+      }
+    }
+
+    // Dimensional room enemy hit (screen-space coords, separate array)
+    if (b.alive && GS.state === 'dimensional' && GS.dimRoom.active) {
+      for (const e of GS.dimRoom.enemies) {
+        if (!e.alive) continue;
+        if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:e.x,y:e.y,w:e.w,h:e.h})) {
+          e.hp -= b.dmg;
+          e.hitFlash = 0.15;
+          const hitCol = b.gunType === 'particle_blaster' ? GLITTER[randInt(0,GLITTER.length-1)] : GUN_DEFS[b.gunType].color;
+          spawnParticles(sx, b.y, b.gunType === 'particle_blaster' ? 10 : 5, {color:hitCol,speedMin:40,speedMax:160,lifeMin:0.1,lifeMax:0.3,sizeMin:1,sizeMax:3,upBias:20});
+          if (e.hp <= 0) {
+            e.alive = false;
+            GS.score += 200;
+            if (Math.random() < 0.25) GS.gems += randInt(1, 3);
+            spawnParticles(e.x+e.w/2, e.y+e.h/2, 14, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
+            updateHUD();
+          }
+          if (b.gunType !== 'railgun') { b.alive = false; }
+          break;
+        }
       }
     }
 
@@ -2118,7 +2140,8 @@ function updatePlayerDim(dt) {
   if (!up && !down) p.vy = lerp(p.vy, 0, 0.3);
 
   if (p.gunCooldown > 0) p.gunCooldown -= dt;
-  if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
+  const pbChaseDim = p.gun?.type === 'particle_blaster' && (Keys.held['KeyJ'] || Keys.held['KeyZ']);
+  if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer || pbChaseDim) {
     attackBuffer = false;
     fireGun();
   }
