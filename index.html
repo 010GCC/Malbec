@@ -6,7 +6,7 @@
 <title>MALBEC</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;600;700&display=swap" rel="stylesheet">
+<link href="https://fonts.googleapis.com/css2?family=Share+Tech+Mono&family=Chakra+Petch:wght@400;600;700&family=Orbitron:wght@900&display=swap" rel="stylesheet">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
@@ -26,6 +26,7 @@
     display: block;
     pointer-events: none;
   }
+  body.at-title #hud { visibility: hidden; }
   #ui {
     position: fixed;
     inset: 0;
@@ -111,14 +112,18 @@
   #title-screen {
     background: transparent;
     justify-content: flex-end;
-    padding-bottom: 12%;
+    padding-bottom: 10%;
   }
   #title-screen .sub {
-    font-size: 13px;
+    position: absolute;
+    top: 52%;
+    left: 50%;
+    transform: translateX(-50%);
+    font-size: 12px;
     letter-spacing: 4px;
-    color: rgba(255,255,255,0.35);
+    color: rgba(255,255,255,0.4);
     text-transform: uppercase;
-    margin-bottom: 40px;
+    white-space: nowrap;
   }
   .start-btn {
     font-family: 'Chakra Petch', sans-serif;
@@ -347,7 +352,7 @@
   }
 </style>
 </head>
-<body>
+<body class="at-title">
 
 <canvas id="gameCanvas"></canvas>
 
@@ -377,7 +382,7 @@
   </div>
 
   <!-- Boss warning -->
-  <div id="boss-warning">BOSS APPROACHES</div>
+  <div id="boss-warning"></div>
 
   <!-- Dimensional room flash -->
   <div id="dim-flash"></div>
@@ -430,9 +435,10 @@
 
 <script>
 // ─────────────────────────────────────────────
-//  MALBEC — v1.1
+//  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
+const VERSION = '1.6.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -457,13 +463,11 @@ const DASH_FORCE = 520;
 const DASH_DURATION = 0.18;
 const FLOOR_Y = () => canvas.height - TILE * 1.5;
 const ENEMY_CONTACT_DMG = 5; // % per contact trigger
-const SPIKE_DMG = 15; // % per second
+const SPIKE_DMG = 2; // % per second
 const WORLD_SCROLL_SPEED = 220;
 const BULLET_SPEED = 620;
 const GUN_DEFS = {
-  spread:        { ammo: 24,       cooldown: 0.38, color: '#ffaa00', label: 'SPREAD',       dmg: 1 },
-  spread_bounce: { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SPREAD BOUNCE',dmg: 1 },
-  bounce:        { ammo: 14,       cooldown: 0.22, color: '#aaffaa', label: 'RICOCHET',     dmg: 2 },
+  scatter:       { ammo: 18,       cooldown: 0.40, color: '#ff6600', label: 'SCATTER',      dmg: 1 },
   railgun:       { ammo: 7,        cooldown: 0.75, color: '#ffff44', label: 'RAILGUN',      dmg: 99 },
   homing_spread: { ammo: 20,       cooldown: 0.45, color: '#ff44ff', label: 'SEEKER',       dmg: 1 },
 };
@@ -659,7 +663,7 @@ function mulberry32(seed) {
 }
 
 // ── Game State ────────────────────────────────
-let GS = {}; // populated by resetGame()
+let GS = { state: 'title' }; // populated by resetGame() on start
 
 function generateWorld() {
   const chars = [];
@@ -703,7 +707,7 @@ function resetGame() {
       attackHitbox: null,
       isGrounded: false,
       onFloor: false,
-      gun: { type: 'spread', ammo: Infinity },
+      gun: null,
       gunCooldown: 0,
       isEvading: false,
       evadeTimer: 0,
@@ -745,11 +749,12 @@ function resetGame() {
       totalWaves: 3,
       enemies: [],
       spawnTimer: 0,
-      phase: 'wave', // wave | preview | exit
+      phase: 'wave', // wave | assemble | exit
       previewTimer: 0,
       flashTimer: 0,
       flashCount: 0,
       exitDoors: [],
+      assemble: null,
     },
     // Transition
     transitionAlpha: 0,
@@ -759,6 +764,7 @@ function resetGame() {
     // Level announce
     announceAlpha: 0,
     announceText: '',
+    pickupPrompt: null,
     // World transition progressive reveal (-1 = idle, 0-1 = revealing)
     worldReveal: -1,
     cinematic: null,
@@ -782,7 +788,7 @@ function generateLevel() {
   GS.bullets = [];
   GS.weaponPickups = [];
   GS.railBeam = null;
-  GS.player.gun = { type: 'spread', ammo: Infinity };
+  GS.player.gun = null;
   GS.player.gunCooldown = 0;
   GS.dimDoor = null;
   GS.dimDoorActive = false;
@@ -815,7 +821,7 @@ function generateLevel() {
   }
 
   // Weapon pickups — 2 random drops spaced across the level
-  const gunPool = ['spread_bounce','bounce','railgun','homing_spread'];
+  const gunPool = ['scatter','railgun','homing_spread'];
   const pick1 = pick(gunPool);
   let pick2 = pick(gunPool);
   while (pick2 === pick1) pick2 = pick(gunPool);
@@ -849,8 +855,8 @@ function spawnBoss() {
   const headIdx = randInt(0,13);
   const bodyIdx = randInt(0,13);
   const legIdx  = randInt(0,13);
-  const headHP   = 6;
-  const bodyHP   = 9;
+  const headHP   = 3;
+  const bodyHP   = 3;
   const legHP    = 3;
 
   GS.boss = {
@@ -876,6 +882,8 @@ function spawnBoss() {
     dyingTimer: 0,
     dying: false,
     dead: false,
+    hitFlash: 0,
+    hitFlashZone: null,
   };
   GS.boss.y = FLOOR_Y() - GS.boss.h;
   GS.bossActive = true;
@@ -1136,27 +1144,24 @@ function spawnBullet(wx, y, vx, vy, gunType, bounces) {
 
 function fireGun() {
   const p = GS.player;
+  if (!p.gun) return;
   const def = GUN_DEFS[p.gun.type];
   if (p.gunCooldown > 0) return;
-  if (p.gun.ammo <= 0) { p.gun = { type: 'spread', ammo: Infinity }; return; }
+  if (p.gun.ammo <= 0) { p.gun = null; return; }
   p.gunCooldown = def.cooldown;
   if (p.gun.ammo !== Infinity) p.gun.ammo--;
 
-  const bx = p.x + (p.facing > 0 ? p.w + 2 : -4);
+  const dimOffset = GS.state === 'dimensional' ? GS.cameraX : 0;
+  const bx = p.x + dimOffset + (p.facing > 0 ? p.w + 2 : -4);
   const by = p.y + p.h * 0.4;
   const dir = p.facing;
   const t = p.gun.type;
 
-  if (t === 'spread') {
-    // increase pellet count (e.g. -2 to 2) when overall mechanics are better
-    spawnBullet(bx, by, dir * BULLET_SPEED, 0, t, 0);
-  } else if (t === 'spread_bounce') {
+  if (t === 'scatter') {
     for (let a = -2; a <= 2; a++) {
       const ang = a * 0.18;
       spawnBullet(bx, by, dir * BULLET_SPEED * Math.cos(ang), BULLET_SPEED * Math.sin(ang) - 40, t, 3);
     }
-  } else if (t === 'bounce') {
-    spawnBullet(bx, by, dir * BULLET_SPEED, -180, t, 5);
   } else if (t === 'railgun') {
     // Instant piercing beam — hit all enemies in horizontal band
     const hitBand = { y: p.y - 10, h: p.h + 20 };
@@ -1209,12 +1214,10 @@ function updateBullets(dt) {
     b.wx += b.vx * dt;
     b.y  += b.vy * dt;
 
-    // Floor bounce
     if (b.y >= fw) {
       if (b.bounces > 0) { b.y = fw - 1; b.vy = -Math.abs(b.vy) * 0.82; b.bounces--; }
       else { b.alive = false; continue; }
     }
-    // Ceiling
     if (b.y < 0) {
       if (b.bounces > 0) { b.y = 1; b.vy = Math.abs(b.vy); b.bounces--; }
       else { b.alive = false; continue; }
@@ -1253,6 +1256,7 @@ function updateBullets(dt) {
         spawnParticles(sx, b.y, 6, {color:GUN_DEFS[b.gunType].color,speedMin:60,speedMax:200,lifeMin:0.1,lifeMax:0.3,sizeMin:2,sizeMax:4,upBias:30});
         const zone = b.y < boss.y + boss.h*0.35 ? 'head'
                    : b.y < boss.y + boss.h*0.68 ? 'body' : 'legs';
+        boss.hitFlash = 0.18; boss.hitFlashZone = zone;
         if (zone === 'head') {
           boss.headHits++;
           if (boss.headHits >= boss.headHP) { boss.alive = false; boss.dying = true; sfxBossDeath(); }
@@ -1278,16 +1282,27 @@ function updateBullets(dt) {
 }
 
 function updateWeaponPickups(dt) {
-  if (GS.worldReveal >= 0 && GS.worldReveal < 0.8) return; // wait for overlay to clear
+  if (GS.worldReveal >= 0 && GS.worldReveal < 0.8) return;
   const p = GS.player;
+  GS.pickupPrompt = null;
   for (const pu of GS.weaponPickups) {
     if (pu.taken) continue;
     if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:pu.wx,y:pu.y,w:pu.w,h:pu.h})) {
-      pu.taken = true;
-      p.gun = { type: pu.type, ammo: Infinity };
-      p.gunCooldown = 0;
-      GS.announceText = GUN_DEFS[pu.type].label;
-      GS.announceAlpha = 1.2;
+      if (!p.gun || p.gun.type !== pu.type) {
+        GS.pickupPrompt = pu;
+        if (Keys.just['ArrowUp'] || Keys.just['KeyW']) {
+          pu.taken = true;
+          p.gun = { type: pu.type, ammo: Infinity };
+          p.gunCooldown = 0;
+          GS.pickupPrompt = null;
+          GS.announceText = GUN_DEFS[pu.type].label;
+          GS.announceAlpha = 1.5;
+        }
+      } else {
+        // Same gun already equipped — auto-top up ammo
+        pu.taken = true;
+        p.gun.ammo = Infinity;
+      }
     }
   }
 }
@@ -1352,8 +1367,29 @@ function renderWeaponPickups() {
   }
 }
 
+function renderPickupPrompt() {
+  const pu = GS.pickupPrompt;
+  if (!pu) return;
+  const def = GUN_DEFS[pu.type];
+  const sx = pu.wx - GS.cameraX;
+  const sy = pu.y - 28;
+  ctx.save();
+  ctx.textAlign = 'center';
+  ctx.font = "bold 11px 'Chakra Petch', sans-serif";
+  ctx.fillStyle = def.color;
+  ctx.shadowColor = def.color;
+  ctx.shadowBlur = 10;
+  ctx.fillText(`▲ EQUIP ${def.label}`, sx + pu.w / 2, sy);
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(255,255,255,0.4)';
+  ctx.font = "9px 'Share Tech Mono', monospace";
+  ctx.fillText('press ↑', sx + pu.w / 2, sy + 13);
+  ctx.restore();
+}
+
 function renderGunHUD() {
   const p = GS.player;
+  if (!p.gun) return;
   const def = GUN_DEFS[p.gun.type];
   const ammoStr = p.gun.ammo === Infinity ? '∞' : String(p.gun.ammo);
   ctx.save();
@@ -1503,6 +1539,7 @@ function updateBoss(dt) {
 
   boss.phaseTimer += dt;
   boss.attackTimer -= dt;
+  if (boss.hitFlash > 0) boss.hitFlash -= dt;
 
   // Phase switching (damage-triggered)
   const totalHits = boss.headHits + boss.bodyHits + boss.legHits;
@@ -1576,6 +1613,7 @@ function updateBoss(dt) {
         len: rand(50, 200),
       });
 
+      boss.hitFlash = 0.18; boss.hitFlashZone = hitPart;
       if (hitPart === 'head') {
         boss.headHits++;
         spawnParticles(bx+boss.w/2, boss.y+10, 12, {color:'#ff4466',speedMin:100,speedMax:350,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7,upBias:100});
@@ -1780,12 +1818,13 @@ function enterDimensionalRoom() {
   const dr = GS.dimRoom;
   dr.active = true;
   dr.wave = 0;
-  dr.totalWaves = 4; // head wave, torso wave, legs wave, final mixed
+  dr.totalWaves = 3;
   dr.enemies = [];
   dr.phase = 'wave';
   dr.previewTimer = 0;
   dr.flashTimer = 0;
   dr.flashCount = 0;
+  dr.assemble = null;
   const invSide = Math.random() < 0.5 ? 0 : 1;
   const dimFloorY = canvas.height - 80 - 80; // doors sit at the bottom boundary
   dr.exitDoors = [
@@ -1801,31 +1840,28 @@ function spawnDimWave() {
   const pal = GS.world.palette;
   const cx = canvas.width/2, cy = canvas.height/2;
 
-  // wave 0=heads, 1=torsos, 2=legs, 3=final(one each, circling)
+  // wave 0=heads, 1=torsos, 2=legs
   const waveTypes = [
     ['head','head','head'],
     ['torso','torso','torso'],
     ['legs','legs','legs'],
-    ['head','torso','legs'],
   ];
-  const types = waveTypes[Math.min(dr.wave, 3)];
-  const isFinal = dr.wave === 3;
+  const types = waveTypes[Math.min(dr.wave, 2)];
 
   for (let i=0; i<types.length; i++) {
     const type = types[i];
     const angle = (i/types.length) * Math.PI*2;
-    const dist = isFinal ? 180 : rand(150,260);
     dr.enemies.push({
       type,
-      x: cx + Math.cos(angle)*dist,
-      y: cy + Math.sin(angle)*dist,
+      x: cx + Math.cos(angle)*rand(150,260),
+      y: cy + Math.sin(angle)*rand(150,260),
       vx: 0, vy: 0,
       w: type==='torso'?52:28,
       h: type==='torso'?40:28,
       hp: type==='torso'?4:2,
       hitFlash: 0,
       alive: true,
-      orbit: isFinal ? { angle: angle, radius: 180, speed: 1.2 } : null,
+      orbit: null,
       sprite: genSprite(randInt(1,99999), type==='torso'?52:28, 28, pal),
     });
   }
@@ -1847,33 +1883,15 @@ function updateDimensionalRoom(dt) {
     return;
   }
 
-  if (dr.phase === 'preview') {
-    dr.previewTimer -= dt;
-    dr.flashTimer -= dt;
-    if (dr.flashTimer <= 0 && dr.flashCount < 4) {
-      GS.flashAlpha = 0.8;
-      dr.flashTimer = 0.3;
-      dr.flashCount++;
-    }
-    if (dr.previewTimer <= 0) {
-      dr.phase = 'exit';
-    }
-    return;
-  }
+  if (dr.phase === 'assemble') { updateDimAssemble(dt); return; }
 
   // Wave combat
   for (const e of dr.enemies) {
     if (!e.alive) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
 
-    // Move — final wave orbits, others chase
-    if (e.orbit) {
-      e.orbit.angle += e.orbit.speed * dt;
-      const tx = p.x + Math.cos(e.orbit.angle) * e.orbit.radius;
-      const ty = p.y + Math.sin(e.orbit.angle) * e.orbit.radius;
-      e.x = lerp(e.x, tx, 0.08);
-      e.y = lerp(e.y, ty, 0.08);
-    } else {
+    // Chase player
+    {
       const dx = p.x - e.x, dy = p.y - e.y;
       const dist = Math.sqrt(dx*dx+dy*dy) || 1;
       const speed = e.type==='torso' ? 60 : (e.type==='head'?110:90);
@@ -1892,21 +1910,7 @@ function updateDimensionalRoom(dt) {
       takeDamage(ENEMY_CONTACT_DMG);
     }
 
-    // Attack hit
-    if (p.attackHitbox && rectsOverlap({x:e.x,y:e.y,w:e.w,h:e.h},{x:p.attackHitbox.x,y:p.attackHitbox.y,w:p.attackHitbox.w,h:p.attackHitbox.h})) {
-      e.hp--;
-      e.hitFlash = 0.15;
-      p.attackHitbox = null;
-      p.attackTimer = 0;
-      GS.score += 100;
-      spawnParticles(e.x+e.w/2, e.y+e.h/2, 8, {color:GS.world.palette.accent,speedMin:60,speedMax:200,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5,upBias:50});
-      if (e.hp <= 0) {
-        e.alive = false;
-        GS.score += 200;
-        if (Math.random() < 0.25) GS.gems += randInt(1, 3);
-        spawnParticles(e.x+e.w/2, e.y+e.h/2, 14, {color:'#ffffff',speedMin:80,speedMax:300,lifeMin:0.3,lifeMax:0.7,sizeMin:2,sizeMax:6,upBias:80});
-        updateHUD();
-      }
+    // Bullet hit (handled in updateBullets — no melee in dim room)
     }
   }
   dr.enemies = dr.enemies.filter(e => e.alive);
@@ -1914,17 +1918,69 @@ function updateDimensionalRoom(dt) {
   if (dr.enemies.length === 0) {
     dr.wave++;
     if (dr.wave >= dr.totalWaves) {
-      // Final wave done — boss preview
-      dr.phase = 'preview';
-      dr.previewTimer = 3.0;
-      dr.flashTimer = 0.3;
-      dr.flashCount = 0;
-      GS.announceText = 'BOSS SILHOUETTE DETECTED';
-      GS.announceAlpha = 2;
+      // All 3 waves cleared — boss assembles
+      dr.phase = 'assemble';
+      const W = canvas.width, H = canvas.height;
+      const cx = W / 2, cy = H / 2;
+      const sc = 1.5;
+      const hw = Math.round(28*sc), hh = Math.round(28*sc);
+      const tw = Math.round(52*sc), th = Math.round(40*sc);
+      const pal = GS.world.palette;
+      dr.assemble = {
+        subPhase: 'gather',
+        timer: 0,
+        fleeDirX: Math.random() < 0.5 ? -1 : 1,
+        parts: [
+          { type:'head',  x: W*0.85, y: H*0.1,  tx: cx - hw/2,      ty: cy - th/2 - hh, w: hw, h: hh },
+          { type:'torso', x: W*0.1,  y: H*0.65, tx: cx - tw/2,      ty: cy - th/2,      w: tw, h: th },
+          { type:'legs',  x: W*0.1,  y: H*0.1,  tx: cx - hw/2,      ty: cy - th/2 + th, w: hw, h: hh },
+        ],
+      };
+      GS.announceText = 'ASSEMBLING';
+      GS.announceAlpha = 2.0;
     } else {
-      const nextLabel = ['HEADS', 'TORSOS', 'LEGS', 'ALL THREE'][dr.wave] || '';
+      const nextLabel = ['HEADS', 'TORSOS', 'LEGS'][dr.wave] || '';
       if (nextLabel) { GS.announceText = nextLabel; GS.announceAlpha = 1.5; }
       setTimeout(()=>spawnDimWave(), 900);
+    }
+  }
+}
+
+function updateDimAssemble(dt) {
+  const dr = GS.dimRoom;
+  const a = dr.assemble;
+  a.timer += dt;
+
+  if (a.subPhase === 'gather') {
+    let allClose = true;
+    for (const part of a.parts) {
+      part.x = lerp(part.x, part.tx, 0.07);
+      part.y = lerp(part.y, part.ty, 0.07);
+      if (Math.abs(part.x - part.tx) > 3 || Math.abs(part.y - part.ty) > 3) allClose = false;
+    }
+    if (allClose || a.timer > 2.5) {
+      for (const part of a.parts) { part.x = part.tx; part.y = part.ty; }
+      a.subPhase = 'hold';
+      a.timer = 0;
+      GS.flashAlpha = 0.7;
+      GS.announceText = 'IT FLEES';
+      GS.announceAlpha = 2.5;
+    }
+  } else if (a.subPhase === 'hold') {
+    if (a.timer > 1.4) {
+      a.subPhase = 'flee';
+      a.timer = 0;
+    }
+  } else if (a.subPhase === 'flee') {
+    const spd = 750;
+    for (const part of a.parts) {
+      part.x += a.fleeDirX * spd * dt;
+      part.y -= 80 * dt;
+    }
+    const W = canvas.width;
+    const offScreen = a.parts.every(p => p.x > W + 80 || p.x + p.w < -80);
+    if (offScreen || a.timer > 2.5) {
+      dr.phase = 'exit';
     }
   }
 }
@@ -2043,11 +2099,10 @@ function updatePlayerDim(dt) {
   if (down)  { p.vy = lerp(p.vy,  PLAYER_SPEED, 0.35); }
   if (!up && !down) p.vy = lerp(p.vy, 0, 0.3);
 
+  if (p.gunCooldown > 0) p.gunCooldown -= dt;
   if (Keys.just['KeyJ'] || Keys.just['KeyZ'] || attackBuffer) {
     attackBuffer = false;
-    p.attackTimer = 0.2;
-    p.attackHitbox = { x: p.x + (p.facing>0?p.w:-p.w*0.8), y: p.y+2, w: p.w*1.2, h: p.h-4, type:'punch' };
-    sfxAttack();
+    fireGun();
   }
 
   p.x += p.vx * dt;
@@ -2353,42 +2408,39 @@ function renderBoss() {
     ctx.filter = `hue-rotate(${boss.redTint*30}deg) saturate(${1+boss.redTint*2})`;
   }
 
-  // Body parts
   // Draw base sprite
   if (boss.sprite) ctx.drawImage(boss.sprite, sx, boss.y, boss.w, boss.h);
 
-  // Phase indicator glow
-  const phaseColors = { flight: '#66aaff', tank: '#ff8800', ground: '#44ff88' };
-  ctx.shadowColor = phaseColors[boss.phase] || '#ffffff';
-  ctx.shadowBlur = 20 + Math.sin(GS.levelTimer*5)*8;
-  ctx.strokeStyle = phaseColors[boss.phase] || '#ffffff';
-  ctx.lineWidth = 2;
-
-  // Head zone highlight (flight)
-  if (boss.phase === 'flight') {
-    ctx.strokeRect(sx+10, boss.y, boss.w-20, boss.h*0.35);
-    ctx.fillStyle = 'rgba(102,170,255,0.12)';
-    ctx.fillRect(sx+10, boss.y, boss.w-20, boss.h*0.35);
-  }
-  // Body zone (tank)
-  if (boss.phase === 'tank') {
-    ctx.strokeRect(sx+5, boss.y+boss.h*0.33, boss.w-10, boss.h*0.35);
-    ctx.fillStyle = 'rgba(255,136,0,0.12)';
-    ctx.fillRect(sx+5, boss.y+boss.h*0.33, boss.w-10, boss.h*0.35);
-  }
-  // Leg zone (ground)
-  if (boss.phase === 'ground' && !boss.legless) {
-    ctx.strokeRect(sx+10, boss.y+boss.h*0.65, boss.w-20, boss.h*0.35);
-    ctx.fillStyle = 'rgba(68,255,136,0.12)';
-    ctx.fillRect(sx+10, boss.y+boss.h*0.65, boss.w-20, boss.h*0.35);
+  // Hit flash — red transparent glow over struck zone
+  if (boss.hitFlash > 0) {
+    const flashAlpha = (boss.hitFlash / 0.18) * 0.55;
+    const zone = boss.hitFlashZone;
+    let zy = boss.y, zh = boss.h;
+    if (zone === 'head')  { zy = boss.y;                   zh = boss.h * 0.35; }
+    if (zone === 'body')  { zy = boss.y + boss.h * 0.33;   zh = boss.h * 0.35; }
+    if (zone === 'legs')  { zy = boss.y + boss.h * 0.65;   zh = boss.h * 0.35; }
+    ctx.shadowColor = '#ff2200';
+    ctx.shadowBlur = 18;
+    ctx.fillStyle = `rgba(255,30,0,${flashAlpha})`;
+    ctx.fillRect(sx, zy, boss.w, zh);
+    ctx.shadowBlur = 0;
   }
 
-  // Legless indicator
-  if (boss.legless) {
-    ctx.fillStyle = 'rgba(255,255,255,0.6)';
-    ctx.font = '9px Chakra Petch, sans-serif';
-    ctx.textAlign = 'center';
-    ctx.fillText('LEGLESS', sx + boss.w/2, boss.y + boss.h + 14);
+  // HP pips (3 per zone, drawn outside boss body)
+  const zones = [
+    { hits: boss.headHits, hp: boss.headHP, y: boss.y + boss.h*0.18,  defeated: boss.headHits >= boss.headHP },
+    { hits: boss.bodyHits, hp: boss.bodyHP, y: boss.y + boss.h*0.52,  defeated: boss.bodyHits >= boss.bodyHP },
+    { hits: boss.legHits,  hp: boss.legHP,  y: boss.y + boss.h*0.82,  defeated: boss.legless },
+  ];
+  for (const z of zones) {
+    for (let i = 0; i < z.hp; i++) {
+      const px = sx + boss.w + 8 + i * 9;
+      const hit = i < z.hits;
+      ctx.beginPath();
+      ctx.arc(px, z.y, 3, 0, Math.PI*2);
+      ctx.fillStyle = z.defeated ? 'rgba(255,255,255,0.15)' : hit ? 'rgba(255,60,60,0.9)' : 'rgba(255,255,255,0.7)';
+      ctx.fill();
+    }
   }
 
   ctx.restore();
@@ -2475,11 +2527,13 @@ function renderDimensionalRoom() {
 
   const dr = GS.dimRoom;
 
-  // Wave counter
-  ctx.fillStyle = 'rgba(255,255,255,0.4)';
-  ctx.font = '12px Share Tech Mono, monospace';
-  ctx.textAlign = 'left';
-  ctx.fillText(`WAVE ${dr.wave+1}/${dr.totalWaves}`, 32, 80);
+  // Wave counter (hidden during assembly)
+  if (dr.phase === 'wave') {
+    ctx.fillStyle = 'rgba(255,255,255,0.4)';
+    ctx.font = '12px Share Tech Mono, monospace';
+    ctx.textAlign = 'left';
+    ctx.fillText(`WAVE ${dr.wave+1}/${dr.totalWaves}`, 32, 80);
+  }
 
   // Enemies
   for (const e of dr.enemies) {
@@ -2511,17 +2565,22 @@ function renderDimensionalRoom() {
     }
   }
 
-  // Boss preview flash text
-  if (dr.phase === 'preview') {
-    ctx.fillStyle = 'rgba(255,60,60,0.8)';
-    ctx.font = `bold ${Math.floor(28 + Math.sin(GS.levelTimer*8)*4)}px Chakra Petch, sans-serif`;
-    ctx.textAlign = 'center';
-    ctx.textBaseline = 'middle';
-    ctx.shadowColor = '#ff0000';
-    ctx.shadowBlur = 30;
-    ctx.fillText('BOSS DETECTED', W/2, H/2);
-    ctx.shadowBlur = 0;
-    ctx.textBaseline = 'alphabetic';
+  // Assembly animation
+  if (dr.phase === 'assemble' && dr.assemble) {
+    const a = dr.assemble;
+    for (const part of a.parts) {
+      ctx.save();
+      if (a.subPhase === 'hold') {
+        ctx.shadowColor = pal.accent;
+        ctx.shadowBlur = 20 + Math.sin(GS.levelTimer * 9) * 10;
+      } else if (a.subPhase === 'flee') {
+        ctx.globalAlpha = Math.max(0.2, 1 - a.timer * 0.6);
+      }
+      if (part.type === 'head')       drawEnemyHead(ctx, part.x, part.y, part.w, part.h, pal, 0);
+      else if (part.type === 'legs')  drawEnemyLegs(ctx, part.x, part.y, part.w, part.h, pal, 0);
+      else                            drawEnemyTorso(ctx, part.x, part.y, part.w, part.h, pal, 0);
+      ctx.restore();
+    }
   }
 }
 
@@ -2603,6 +2662,7 @@ function update(dt) {
   if (GS.state === 'dimensional') {
     updatePlayerDim(dt);
     updateDimensionalRoom(dt);
+    updateBullets(dt);
     updateParticles(dt);
     return;
   }
@@ -2655,6 +2715,7 @@ function render() {
   if (GS.state === 'dimensional') {
     renderDimensionalRoom();
     renderPlayer();
+    renderBullets();
     renderParticles();
     renderAnnounce();
     return;
@@ -2683,6 +2744,7 @@ function render() {
   renderParticles();
   renderScreenDamage();
   renderAnnounce();
+  renderPickupPrompt();
   renderGunHUD();
 
   // World name watermark (HUD layer, fades early)
@@ -2706,10 +2768,16 @@ function render() {
 function renderMonumentalText() {
   const W = canvas.width, H = canvas.height;
   const reveal = GS.worldReveal;
-  // Fade in as reveal progresses past 0.25, then hold, fade with levelTimer
-  const revealFade = reveal < 0 ? 0 : clamp((reveal - 0.25) / 0.4, 0, 1);
-  const timeFade = Math.max(0, 1 - GS.levelTimer * 0.03);
-  const alpha = revealFade * timeFade * 0.88;
+
+  // Ease-in: smoothstep, starts early, takes most of the reveal window
+  const tIn = clamp((reveal - 0.05) / 0.75, 0, 1);
+  const easeIn = tIn * tIn * (3 - 2 * tIn);
+
+  // Ease-out: smoothstep driven by player movement, fades over first 400px
+  const tOut = clamp(GS.distanceTraveled / 400, 0, 1);
+  const easeOut = 1 - tOut * tOut * (3 - 2 * tOut);
+
+  const alpha = easeIn * easeOut * 0.92;
   if (alpha <= 0.01) return;
 
   // Text in world space — player walks through it
@@ -2720,7 +2788,7 @@ function renderMonumentalText() {
   ctx.save();
   ctx.globalAlpha = alpha;
   const fontSize = Math.floor(H * 0.28);
-  ctx.font = `bold ${fontSize}px Chakra Petch, sans-serif`;
+  ctx.font = `900 ${fontSize}px 'Orbitron', sans-serif`;
   ctx.textBaseline = 'middle';
   ctx.textAlign = 'left';
   ctx.fillStyle = GS.world.palette.accent;
@@ -2735,6 +2803,7 @@ function renderMonumentalText() {
 function doStart() {
   stopTitleAnim();
   initAudio();
+  document.body.classList.remove('at-title');
   document.getElementById('title-screen').classList.add('hidden');
   resetGame();
   GS.state = 'playing';
@@ -2846,6 +2915,12 @@ function titleFrame(ts) {
   ctx.globalAlpha = s.malbecAlpha * 0.38;
   ctx.fillStyle = '#ff99ff';
   ctx.fillText('MALBEC', W / 2, titleY);
+  // Version
+  ctx.globalAlpha = s.malbecAlpha * 0.45;
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = '#cc88ff';
+  ctx.font = "11px 'Share Tech Mono', monospace";
+  ctx.fillText('v' + VERSION, W / 2, titleY + Math.floor(fontSize * 0.6) + 14);
   ctx.restore();
 
   // Floor level for character + bullets
@@ -2938,9 +3013,11 @@ function titleFrame(ts) {
   }
 }
 
-// On load: fonts ready — start title animation
+// On load: fonts ready — preload Orbitron then start title animation
 document.fonts.ready.then(() => {
-  startTitleAnim();
+  document.fonts.load("900 48px 'Orbitron'").finally(() => {
+    startTitleAnim();
+  });
 });
 
 </script>
