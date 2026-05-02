@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.5';
+const VERSION = '1.6.6';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -705,12 +705,14 @@ function resetGame() {
       state: 'idle', // idle|run|jump|dash|attack|slide|evade
       sprite: null,
       isGold: false,
+      lastSafeX: 120,
     },
     // Scrolling camera
     cameraX: 0,
     // Platforms and floor
     platforms: [],
     spikes: [],
+    pits: [],
 
     // Enemies
     enemies: [],
@@ -775,6 +777,7 @@ function generateLevel() {
   GS.bossActive = false;
   GS.platforms = [];
   GS.spikes = [];
+  GS.pits = [];
   GS.enemies = [];
   GS.bullets = [];
   GS.weaponPickups = [];
@@ -810,6 +813,18 @@ function generateLevel() {
   // Spikes (not in first section)
   for (let x = W*0.7; x < levelWidth; x += randInt(300,600)) {
     GS.spikes.push({ x, y: fw - 18, w: 40, h: 18 });
+  }
+
+  // Pits — ~10% floor coverage, start after safe intro section
+  {
+    const pitZoneEnd = GS.distanceGoal - 300;
+    for (let x = W * 0.55; x < pitZoneEnd; ) {
+      x += randInt(500, 900);
+      if (x >= pitZoneEnd) break;
+      const pw = randInt(90, 140);
+      GS.pits.push({ x, w: pw });
+      x += pw;
+    }
   }
 
   // Weapon pickups — 2 random drops spaced across the level
@@ -1043,12 +1058,21 @@ function updatePlayer(dt) {
   // Floor collision
   p.isGrounded = false;
   p.onFloor = false;
-  if (p.y + p.h >= fw) {
+  const playerCX = p.x + p.w / 2;
+  const overPit = isOverPit(playerCX);
+  if (p.y + p.h >= fw && !overPit) {
     p.y = fw - p.h;
     p.vy = 0;
     p.isGrounded = true;
     p.onFloor = true;
     p.jumpsLeft = 2;
+    p.lastSafeX = p.x;
+  }
+  // Always leave at least 1 jump when over a pit so player can recover
+  if (overPit && p.jumpsLeft === 0) p.jumpsLeft = 1;
+  // Fell into pit
+  if (p.y > canvas.height + 60 && (GS.state === 'playing' || GS.state === 'boss')) {
+    pitDeath();
   }
 
   // Platform collisions (one-way: jump through from below, land on top)
@@ -1060,6 +1084,7 @@ function updatePlayer(dt) {
       p.vy = 0;
       p.isGrounded = true;
       p.jumpsLeft = 2;
+      p.lastSafeX = p.x;
     }
   }
 
@@ -1079,6 +1104,25 @@ function updatePlayer(dt) {
 
   // Attack hitbox expiry
   if (p.attackTimer <= 0) p.attackHitbox = null;
+}
+
+// ── Pits ──────────────────────────────────────
+function isOverPit(worldX) {
+  for (const pit of GS.pits) {
+    if (worldX > pit.x && worldX < pit.x + pit.w) return true;
+  }
+  return false;
+}
+
+function pitDeath() {
+  const p = GS.player;
+  takeDamage(100);
+  if (GS.state === 'gameover') return;
+  p.x = p.lastSafeX;
+  p.y = FLOOR_Y() - p.h;
+  p.vx = 0;
+  p.vy = 0;
+  p.jumpsLeft = 2;
 }
 
 // ── Damage ─────────────────────────────────────
@@ -2205,16 +2249,42 @@ function renderFloor() {
   const W = canvas.width, H = canvas.height;
   const fw = FLOOR_Y();
 
-  // Floor
+  // Build solid floor segments by subtracting pit gaps from visible range
+  const visStart = GS.cameraX;
+  const visEnd = GS.cameraX + W;
+  const relevantPits = GS.pits.filter(p => p.x + p.w > visStart && p.x < visEnd);
+  relevantPits.sort((a, b) => a.x - b.x);
+
   const fGrad = ctx.createLinearGradient(0, fw, 0, H);
   fGrad.addColorStop(0, pal.ground);
   fGrad.addColorStop(0.15, darken(pal.ground, 0.3));
   fGrad.addColorStop(1, '#000');
-  ctx.fillStyle = fGrad;
-  ctx.fillRect(0, fw, W, H-fw);
-  // Floor top line
-  ctx.fillStyle = lighten(pal.ground, 0.2);
-  ctx.fillRect(0, fw, W, 3);
+
+  let curWorld = visStart;
+  const drawSeg = (worldA, worldB) => {
+    if (worldB <= worldA) return;
+    const sx = worldA - GS.cameraX;
+    const sw = worldB - worldA;
+    ctx.fillStyle = fGrad;
+    ctx.fillRect(sx, fw, sw, H - fw);
+    ctx.fillStyle = lighten(pal.ground, 0.2);
+    ctx.fillRect(sx, fw, sw, 3);
+    // Pit edge walls — dark drop-off on both sides of each gap
+    ctx.fillStyle = darken(pal.ground, 0.5);
+    ctx.fillRect(sx + sw - 4, fw, 4, H - fw);
+    ctx.fillRect(sx, fw, 4, H - fw);
+  };
+
+  for (const pit of relevantPits) {
+    drawSeg(curWorld, pit.x);
+    // Draw dark void inside pit
+    ctx.fillStyle = '#000';
+    const ps = Math.max(0, pit.x - GS.cameraX);
+    const pe = Math.min(W, pit.x + pit.w - GS.cameraX);
+    ctx.fillRect(ps, fw, pe - ps, H - fw);
+    curWorld = pit.x + pit.w;
+  }
+  drawSeg(curWorld, visEnd);
 
   // Spikes
   for (const sp of GS.spikes) {
