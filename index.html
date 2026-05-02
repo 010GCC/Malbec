@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.6';
+const VERSION = '1.6.7';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -773,7 +773,6 @@ function resetGame() {
 
 // ── Level Generation ──────────────────────────
 function generateLevel() {
-  const isBoss = GS.level % 3 === 0;
   GS.bossActive = false;
   GS.platforms = [];
   GS.spikes = [];
@@ -796,8 +795,8 @@ function generateLevel() {
   GS.worldReveal = 0;
   GS.worldNameFadeT = 0;
 
-  // Generate world
-  if (GS.level % 3 === 1) GS.world = generateWorld();
+  // New world every level
+  GS.world = generateWorld();
   const pal = GS.world.palette;
 
   const fw = FLOOR_Y();
@@ -838,19 +837,11 @@ function generateLevel() {
   GS.weaponPickups.push({ wx: pu2x, y: fw - 28, type: pick2, w: 26, h: 20 });
 
   // Dimensional room door — visible in background at ~40% of level
-  if (!isBoss) {
-    const doorX = GS.distanceGoal * 0.4 + rand(0, 200);
-    GS.dimDoor = { x: doorX, y: fw - 70, w: 40, h: 70, pulseAlpha: 1 };
-    GS.dimDoorActive = true;
-  }
+  const doorX = GS.distanceGoal * 0.4 + rand(0, 200);
+  GS.dimDoor = { x: doorX, y: fw - 70, w: 40, h: 70, pulseAlpha: 1 };
+  GS.dimDoorActive = true;
 
-  // If boss level, prep enemy types first then spawn boss
-  if (isBoss) {
-    spawnBoss();
-  }
-
-  // Announce
-  GS.announceText = isBoss ? `LEVEL ${GS.level} — BOSS` : `LEVEL ${GS.level}`;
+  GS.announceText = `LEVEL ${GS.level}`;
   GS.announceAlpha = 1.5;
 
   updateHUD();
@@ -867,7 +858,7 @@ function spawnBoss() {
   const legHP    = 3;
 
   GS.boss = {
-    x: canvas.width * 0.7,
+    x: GS.cameraX + canvas.width * 0.7,
     y: 0,
     w: 80, h: 120,
     headIdx, bodyIdx, legIdx,
@@ -1494,12 +1485,8 @@ function renderGunHUD() {
 // ── Enemy Spawning ─────────────────────────────
 function spawnEnemy(worldX) {
   const pal = GS.world.palette;
-  const isBossLevel = GS.level % 3 === 0;
   let type;
-  if (isBossLevel) {
-    // Pre-boss levels get all three types
-    type = ['head','legs','torso'][randInt(0,2)];
-  } else if (GS.level === 1) {
+  if (GS.level === 1) {
     type = Math.random() < 0.5 ? 'head' : 'legs';
   } else {
     type = ['head','legs','torso'][randInt(0,2)];
@@ -2109,23 +2096,13 @@ function exitDimensionalRoom(doorType) {
 
 // ── Level Progression ─────────────────────────
 function checkLevelComplete() {
-  if (GS.distanceTraveled >= GS.distanceGoal && !GS.bossActive) {
-    if (GS.level % 3 !== 0) {
-      // Normal level complete
-      GS.state = 'transition';
-      GS.score += 500;
-      setTimeout(()=>{
-        GS.level++;
-        generateLevel();
-        GS.state = 'playing';
-        GS.flashAlpha = 0.6;
-        GS.player.x = 120;
-        GS.player.y = FLOOR_Y() - GS.player.h;
-        GS.player.vx = 0; GS.player.vy = 0;
-        GS.cameraX = 0;
-        updateHUD();
-      }, 1200);
-    }
+  if (GS.distanceTraveled >= GS.distanceGoal && !GS.bossActive && !GS.boss) {
+    GS.enemies = [];
+    GS.enemySpawnTimer = 999;
+    spawnBoss();
+    GS.state = 'boss';
+    GS.announceText = `LEVEL ${GS.level} — BOSS`;
+    GS.announceAlpha = 1.5;
   }
 }
 
@@ -2937,15 +2914,13 @@ document.getElementById('restart-btn').addEventListener('touchend', e => { e.pre
 
 // ── Boss level transition warning ─────────────
 function checkBossWarning() {
-  if (GS.level % 3 === 2 && GS.distanceTraveled > GS.distanceGoal * 0.7) {
-    const bw = document.getElementById('boss-warning');
-    const alpha = 0.5 + 0.5*Math.sin(GS.levelTimer*4);
-    bw.style.opacity = alpha;
-  } else if (GS.level % 3 === 0) {
-    const bw = document.getElementById('boss-warning');
-    bw.style.opacity = GS.bossActive ? (0.5 + 0.5*Math.sin(GS.levelTimer*6)) : 0;
+  const bw = document.getElementById('boss-warning');
+  if (GS.bossActive) {
+    bw.style.opacity = 0.5 + 0.5*Math.sin(GS.levelTimer*6);
+  } else if (GS.distanceTraveled > GS.distanceGoal * 0.7) {
+    bw.style.opacity = 0.5 + 0.5*Math.sin(GS.levelTimer*4);
   } else {
-    document.getElementById('boss-warning').style.opacity = 0;
+    bw.style.opacity = 0;
   }
 }
 
