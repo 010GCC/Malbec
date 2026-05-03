@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.7.0';
+const VERSION = '1.7.1';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -836,9 +836,14 @@ function generateLevel() {
   GS.weaponPickups.push({ wx: pu1x, y: fw - 28, type: pick1, w: 26, h: 20 });
   GS.weaponPickups.push({ wx: pu2x, y: fw - 28, type: pick2, w: 26, h: 20 });
 
-  // Dimensional room door — visible in background at ~40% of level
-  const doorX = GS.distanceGoal * 0.4 + rand(0, 200);
-  GS.dimDoor = { x: doorX, y: fw - 70, w: 40, h: 70, pulseAlpha: 1 };
+  // Dimensional room door — ~40% of level, never over or adjacent to a pit
+  const doorW = 40, pitClear = 80;
+  const pitFree = x => !GS.pits.some(p => x + doorW + pitClear > p.x && x - pitClear < p.x + p.w);
+  let doorX = GS.distanceGoal * 0.4 + rand(0, 200);
+  for (let i = 0; i < 40 && !pitFree(doorX); i++) {
+    doorX = W * 0.55 + rand(0, GS.distanceGoal * 0.45);
+  }
+  GS.dimDoor = { x: doorX, y: fw - 70, w: doorW, h: 70, pulseAlpha: 1 };
   GS.dimDoorActive = true;
 
   GS.announceText = `LEVEL ${GS.level}`;
