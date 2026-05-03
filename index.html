@@ -248,10 +248,10 @@
     pointer-events: none;
   }
   #touch-controls.tc-active { display: flex; pointer-events: none; }
-  .tc-cluster { display: flex; gap: 6px; align-items: flex-end; pointer-events: auto; }
-  .tc-col { display: flex; flex-direction: column; gap: 6px; align-items: center; }
+  .tc-cluster { display: flex; gap: 3px; align-items: flex-end; pointer-events: auto; }
+  .tc-col { display: flex; flex-direction: column; gap: 3px; align-items: center; }
   .tc-btn {
-    width: 56px; height: 56px;
+    width: 68px; height: 68px;
     border-radius: 50%;
     background: rgba(255,255,255,0.10);
     border: 1.5px solid rgba(255,255,255,0.28);
@@ -268,7 +268,7 @@
     transition: background 0.05s, border-color 0.05s;
     -webkit-tap-highlight-color: transparent;
   }
-  .tc-btn.tc-jump { width: 67px; height: 67px; font-size: 11px; border-color: rgba(255,255,255,0.45); }
+  .tc-btn.tc-jump { width: 80px; height: 80px; font-size: 11px; border-color: rgba(255,255,255,0.45); }
   .tc-btn.tc-atk  {
     width: 100px; height: 52px;
     border-radius: 14px;
@@ -394,12 +394,12 @@
 <div id="touch-controls">
   <!-- Left: movement -->
   <div class="tc-cluster">
-    <button class="tc-btn" id="tc-left">◀</button>
+    <button class="tc-btn" id="tc-left"></button>
     <div class="tc-col">
-      <button class="tc-btn" id="tc-up">▲</button>
-      <button class="tc-btn" id="tc-down">▼</button>
+      <button class="tc-btn" id="tc-up"></button>
+      <button class="tc-btn" id="tc-down"></button>
     </div>
-    <button class="tc-btn" id="tc-right">▶</button>
+    <button class="tc-btn" id="tc-right"></button>
   </div>
   <!-- Right: actions -->
   <div class="tc-cluster">
@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.8.2';
+const VERSION = '1.8.3';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -497,17 +497,57 @@ function clearJust() { Keys.just = {}; }
 // ── Touch Controls (Pointer Events for true multi-touch) ─────
 let attackBuffer = false;
 (function() {
-  const map = {
-    'tc-left':  'ArrowLeft',
-    'tc-right': 'ArrowRight',
-    'tc-up':    'ArrowUp',
-    'tc-down':  'ArrowDown',
-    'tc-jump':  'Space',
-    'tc-atk':   'KeyJ',
-    'tc-dash':  'KeyK',
-    'tc-evade': 'KeyL',
+  const dirCodes = { 'tc-left':'ArrowLeft', 'tc-right':'ArrowRight', 'tc-up':'ArrowUp', 'tc-down':'ArrowDown' };
+  const actCodes = { 'tc-jump':'Space', 'tc-atk':'KeyJ', 'tc-dash':'KeyK', 'tc-evade':'KeyL' };
+
+  // D-pad: cluster-level handler so sliding between buttons works
+  const dpadCluster = document.querySelector('#touch-controls .tc-cluster');
+  let dpadPtrs = {}; // pointerId → last active dir id
+
+  function applyDir(id) {
+    const code = dirCodes[id];
+    if (code && !Keys.held[code]) { Keys.just[code] = true; }
+    if (code) Keys.held[code] = true;
+    document.getElementById(id)?.classList.add('tc-pressed');
+  }
+  function clearDir(id) {
+    const code = dirCodes[id];
+    if (code) Keys.held[code] = false;
+    document.getElementById(id)?.classList.remove('tc-pressed');
+  }
+  function dirFromPoint(x, y) {
+    const el = document.elementFromPoint(x, y);
+    return el && dirCodes[el.id] ? el.id : null;
+  }
+
+  dpadCluster.addEventListener('pointerdown', e => {
+    e.preventDefault();
+    const id = dirFromPoint(e.clientX, e.clientY);
+    if (id) { dpadPtrs[e.pointerId] = id; applyDir(id); }
+  }, {passive: false});
+
+  dpadCluster.addEventListener('pointermove', e => {
+    if (!(e.pointerId in dpadPtrs)) return;
+    e.preventDefault();
+    const newId = dirFromPoint(e.clientX, e.clientY);
+    const oldId = dpadPtrs[e.pointerId];
+    if (newId !== oldId) {
+      if (oldId) clearDir(oldId);
+      if (newId) { dpadPtrs[e.pointerId] = newId; applyDir(newId); }
+      else dpadPtrs[e.pointerId] = null;
+    }
+  }, {passive: false});
+
+  const endDpad = e => {
+    const id = dpadPtrs[e.pointerId];
+    if (id) clearDir(id);
+    delete dpadPtrs[e.pointerId];
   };
-  Object.entries(map).forEach(([id, code]) => {
+  dpadCluster.addEventListener('pointerup',     endDpad);
+  dpadCluster.addEventListener('pointercancel', endDpad);
+
+  // Action buttons: pointer capture so no accidental slides
+  Object.entries(actCodes).forEach(([id, code]) => {
     const el = document.getElementById(id);
     if (!el) return;
     const press = e => {
@@ -518,10 +558,7 @@ let attackBuffer = false;
       if (code === 'KeyJ') attackBuffer = true;
       el.classList.add('tc-pressed');
     };
-    const release = e => {
-      Keys.held[code] = false;
-      el.classList.remove('tc-pressed');
-    };
+    const release = e => { Keys.held[code] = false; el.classList.remove('tc-pressed'); };
     el.addEventListener('pointerdown',   press,   {passive: false});
     el.addEventListener('pointerup',     release);
     el.addEventListener('pointercancel', release);
