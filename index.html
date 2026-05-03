@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.8.3';
+const VERSION = '1.8.4';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1363,6 +1363,26 @@ function updateBullets(dt) {
       }
     }
 
+    // Dimensional room boss hit
+    if (b.alive && GS.state === 'dimensional' && GS.dimRoom.dimBoss?.phase === 'idle') {
+      const db = GS.dimRoom.dimBoss;
+      if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:db.x,y:db.y,w:db.w,h:db.h})) {
+        db.hp--;
+        db.hitFlash = 0.45;
+        db.redTint  = 1.0;
+        db.puffScale = 1.28; db.puffVel = -5;
+        GS.score += 300;
+        spawnParticles(sx, b.y, 10, {color:'#aaeeff',speedMin:80,speedMax:280,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:6});
+        if (b.gunType !== 'railgun') b.alive = false;
+        if (db.hp <= 0) {
+          db.phase = 'flee'; db.phaseTimer = 0; db.fleeTimer = 0;
+          GS.flashAlpha = 0.6;
+          GS.announceText = 'IT FLEES'; GS.announceAlpha = 2.0;
+        }
+        updateHUD();
+      }
+    }
+
     // Boss hit
     if (b.alive && GS.boss && GS.boss.alive && !GS.boss.dying) {
       const boss = GS.boss;
@@ -1998,7 +2018,7 @@ function enterDimensionalRoom() {
   dr.previewTimer = 0;
   dr.flashTimer = 0;
   dr.flashCount = 0;
-  dr.assemble = null;
+  dr.dimBoss = null;
   dr.exitTimer = 0;
   const invSide = Math.random() < 0.5 ? 0 : 1;
   const dimFloorY = canvas.height - 80 - 80; // doors sit at the bottom boundary
@@ -2062,7 +2082,7 @@ function updateDimensionalRoom(dt) {
     return;
   }
 
-  if (dr.phase === 'assemble') { updateDimAssemble(dt); return; }
+  if (dr.phase === 'dimboss') { updateDimBoss(dt); return; }
 
   // Wave combat
   for (const e of dr.enemies) {
@@ -2096,25 +2116,22 @@ function updateDimensionalRoom(dt) {
   if (dr.enemies.length === 0) {
     dr.wave++;
     if (dr.wave >= dr.totalWaves) {
-      // All 3 waves cleared — boss assembles
-      dr.phase = 'assemble';
+      // All waves cleared — dim boss appears
+      dr.phase = 'dimboss';
       const W = canvas.width, H = canvas.height;
-      const cx = W / 2, cy = H / 2;
-      const sc = 1.5;
-      const hw = Math.round(28*sc), hh = Math.round(28*sc);
-      const tw = Math.round(52*sc), th = Math.round(40*sc);
-      const pal = GS.world.palette;
-      dr.assemble = {
-        subPhase: 'gather',
-        timer: 0,
-        fleeDirX: Math.random() < 0.5 ? -1 : 1,
-        parts: [
-          { type:'head',  x: W*0.85, y: H*0.1,  tx: cx - hw/2,      ty: cy - th/2 - hh, w: hw, h: hh },
-          { type:'torso', x: W*0.1,  y: H*0.65, tx: cx - tw/2,      ty: cy - th/2,      w: tw, h: th },
-          { type:'legs',  x: W*0.1,  y: H*0.1,  tx: cx - hw/2,      ty: cy - th/2 + th, w: hw, h: hh },
-        ],
+      dr.dimBoss = {
+        x: W/2 - 44, y: -160,
+        w: 88, h: 150,
+        hp: 4,
+        t: 0, puffScale: 1, puffVel: 0,
+        hitFlash: 0, redTint: 0,
+        vx: 0, vy: 0,
+        phase: 'enter', phaseTimer: 0,
+        fleeTimer: 0,
+        fleeDir: Math.random() < 0.5 ? 1 : -1,
+        onGround: false,
       };
-      GS.announceText = 'ASSEMBLING';
+      GS.announceText = '???';
       GS.announceAlpha = 2.0;
     } else {
       const nextLabel = ['HEADS', 'TORSOS', 'LEGS'][dr.wave] || '';
@@ -2124,68 +2141,38 @@ function updateDimensionalRoom(dt) {
   }
 }
 
-function updateDimAssemble(dt) {
+function updateDimBoss(dt) {
   const dr = GS.dimRoom;
-  const a = dr.assemble;
-  a.timer += dt;
+  const db = dr.dimBoss;
+  const W = canvas.width, H = canvas.height;
 
-  if (a.subPhase === 'gather') {
-    let allClose = true;
-    for (const part of a.parts) {
-      part.x = lerp(part.x, part.tx, 0.07);
-      part.y = lerp(part.y, part.ty, 0.07);
-      if (Math.abs(part.x - part.tx) > 3 || Math.abs(part.y - part.ty) > 3) allClose = false;
+  db.t += dt;
+  db.phaseTimer += dt;
+  if (db.hitFlash > 0) db.hitFlash -= dt;
+  db.redTint = Math.max(0, db.redTint - dt * 1.8);
+  db.puffVel += (1 - db.puffScale) * 38 * dt - db.puffVel * 7 * dt;
+  db.puffScale += db.puffVel * dt;
+  db.puffScale = clamp(db.puffScale, 0.7, 1.5);
+
+  if (db.phase === 'enter') {
+    const targetY = H/2 - db.h/2;
+    db.y = lerp(db.y, targetY, 0.08);
+    if (Math.abs(db.y - targetY) < 5 || db.phaseTimer > 2.5) {
+      db.y = targetY;
+      db.phase = 'idle';
+      db.phaseTimer = 0;
+      db.puffScale = 1.22; db.puffVel = -4;
+      GS.announceText = 'SHOOT HIM';
+      GS.announceAlpha = 2.2;
     }
-    if (allClose || a.timer > 2.5) {
-      for (const part of a.parts) { part.x = part.tx; part.y = part.ty; }
-      a.subPhase = 'hold';
-      a.timer = 0;
-      GS.flashAlpha = 0.7;
-      GS.announceText = 'IT FLEES';
-      GS.announceAlpha = 2.5;
-    }
-  } else if (a.subPhase === 'hold') {
-    if (a.timer > 0.9) {
-      a.subPhase = 'dance';
-      a.danceTimer = 0;
-      a.danceVx = (Math.random() < 0.5 ? 1 : -1) * (130 + Math.random() * 90);
-      a.danceVy = (Math.random() < 0.5 ? 1 : -1) * (90 + Math.random() * 70);
-      GS.announceText = 'IT DANCES';
-      GS.announceAlpha = 2.0;
-    }
-  } else if (a.subPhase === 'dance') {
-    a.danceTimer += dt;
-    const W = canvas.width, H = canvas.height;
-    // Gentle random steering
-    a.danceVx += (Math.random() - 0.5) * 140 * dt;
-    a.danceVy += (Math.random() - 0.5) * 100 * dt;
-    const spd = Math.hypot(a.danceVx, a.danceVy);
-    if (spd > 240) { a.danceVx *= 240/spd; a.danceVy *= 240/spd; }
-    if (spd < 80)  { a.danceVx *= 80/spd;  a.danceVy *= 80/spd; }
-    // Bounce off room walls using torso (index 1) as reference
-    const ref = a.parts[1];
-    if (ref.x < 50 || ref.x + ref.w > W - 50) a.danceVx *= -1;
-    if (ref.y < 70 || ref.y + ref.h > H - 130) a.danceVy *= -1;
-    for (const part of a.parts) {
-      part.x += a.danceVx * dt;
-      part.y += a.danceVy * dt;
-    }
-    if (a.danceTimer >= 5.5) {
-      a.subPhase = 'flee';
-      a.timer = 0;
-      GS.flashAlpha = 0.7;
-      GS.announceText = 'IT FLEES';
-      GS.announceAlpha = 2.5;
-    }
-  } else if (a.subPhase === 'flee') {
-    const spd = 750;
-    for (const part of a.parts) {
-      part.x += a.fleeDirX * spd * dt;
-      part.y -= 80 * dt;
-    }
-    const W = canvas.width;
-    const offScreen = a.parts.every(p => p.x > W + 80 || p.x + p.w < -80);
-    if (offScreen || a.timer > 2.5) {
+  } else if (db.phase === 'idle') {
+    db.x = W/2 - db.w/2 + Math.sin(db.t * 1.4) * 42;
+    db.y = H/2 - db.h/2 + Math.sin(db.t * 0.9) * 20;
+  } else if (db.phase === 'flee') {
+    db.fleeTimer += dt;
+    db.x += db.fleeDir * 700 * dt;
+    db.y += -200 * dt;
+    if (db.x > W + 120 || db.x + db.w < -120 || db.fleeTimer > 2.5) {
       dr.phase = 'exit';
     }
   }
@@ -3111,31 +3098,26 @@ function renderDimensionalRoom() {
     }
   }
 
-  // Assembly animation
-  if (dr.phase === 'assemble' && dr.assemble) {
-    const a = dr.assemble;
-    for (const part of a.parts) {
-      ctx.save();
-      if (a.subPhase === 'hold') {
-        ctx.shadowColor = pal.accent;
-        ctx.shadowBlur = 20 + Math.sin(GS.levelTimer * 9) * 10;
-      } else if (a.subPhase === 'dance') {
-        const pulse = 22 + 14 * Math.sin(GS.levelTimer * 11);
-        ctx.shadowColor = pal.accent;
-        ctx.shadowBlur = pulse;
-        // Scale bob centred on part
-        const sc = 1 + 0.06 * Math.sin(GS.levelTimer * 8 + (part.type === 'head' ? 0 : part.type === 'torso' ? 1.2 : 2.4));
-        ctx.translate(part.x + part.w/2, part.y + part.h/2);
-        ctx.scale(sc, sc);
-        ctx.translate(-(part.x + part.w/2), -(part.y + part.h/2));
-      } else if (a.subPhase === 'flee') {
-        ctx.globalAlpha = Math.max(0.2, 1 - a.timer * 0.6);
-      }
-      if (part.type === 'head')       drawEnemyHead(ctx, part.x, part.y, part.w, part.h, pal, 0);
-      else if (part.type === 'legs')  drawEnemyLegs(ctx, part.x, part.y, part.w, part.h, pal, 0, null);
-      else                            drawEnemyTorso(ctx, part.x, part.y, part.w, part.h, pal, 0, null);
-      ctx.restore();
-    }
+  // Dim boss (Stay Puft)
+  if (dr.phase === 'dimboss' && dr.dimBoss) {
+    const db = dr.dimBoss;
+    if (db.phase === 'flee') ctx.globalAlpha = Math.max(0, 1 - db.fleeTimer * 1.6);
+    const _saved = GS.boss;
+    GS.boss = {
+      x: db.x + GS.cameraX, y: db.y, w: db.w, h: db.h,
+      t: db.t, puffScale: db.puffScale, puffVel: 0,
+      hitFlash: db.hitFlash, hitFlashZone: null,
+      redTint: db.redTint,
+      onGround: db.phase === 'idle',
+      phase: 'approach', danceT: 0,
+      orbs: [],
+      headHits: 0, bodyHits: 0, legHits: 0,
+      headHP: 0, bodyHP: 0, legHP: 0,
+      dead: false, dying: false,
+    };
+    renderBoss();
+    GS.boss = _saved;
+    ctx.globalAlpha = 1;
   }
 }
 
