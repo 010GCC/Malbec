@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.8.5';
+const VERSION = '1.8.6';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -2863,8 +2863,7 @@ function renderBoss() {
     ctx.restore();
   }
 
-  // Blob
-  const pal2 = GS.world.palette;
+  // Blob — cyberpunk pink/purple
   const bw = boss.w, bh = boss.h;
   const ps = boss.puffScale;
   const bobY = boss.onGround ? Math.sin(t*3.2)*2 : 0;
@@ -2872,8 +2871,13 @@ function renderBoss() {
   const by = boss.y + bobY;
   const bcx = cx2, bcy = by + bh*0.5;
   const isFlash = boss.hitFlash > 0;
-  const glowCol = boss.redTint > 0.5 ? '#ff3300' : pal2.accent;
-  const blobDark = isFlash ? '#ffffff' : darken(pal2.accent, 0.42);
+  const cpPink   = '#ff22aa';
+  const cpPurple = '#aa00ff';
+  const cpDeep   = '#1a003a';
+  const cpCyan   = '#00ffee';
+  const cpMid    = '#cc00dd';
+  const glowCol  = boss.redTint > 0.5 ? '#ff3300' : cpPink;
+  const blobDark = isFlash ? '#ffffff' : cpDeep;
   const brx = bw*0.42, bry = bh*0.42; // base blob radii
 
   // Build Catmull-Rom blob control points
@@ -2913,8 +2917,8 @@ function renderBoss() {
     ctx.shadowBlur = 0;
     ctx.beginPath(); ctx.moveTo(td.bx, td.by2);
     ctx.quadraticCurveTo(mx, my2, tx2, ty2); ctx.stroke();
-    ctx.shadowColor = glowCol; ctx.shadowBlur = 16;
-    ctx.fillStyle = isFlash ? '#ffffff' : lighten(pal2.accent, 0.12);
+    ctx.shadowColor = cpCyan; ctx.shadowBlur = 16;
+    ctx.fillStyle = isFlash ? '#ffffff' : cpCyan;
     ctx.beginPath(); ctx.arc(tx2, ty2, bw*0.075, 0, Math.PI*2); ctx.fill();
   }
 
@@ -2930,9 +2934,10 @@ function renderBoss() {
   }
   ctx.closePath();
   const bg = ctx.createRadialGradient(bcx-bw*0.1, bcy-bh*0.14, bh*0.04, bcx, bcy, Math.max(bw,bh)*0.54);
-  bg.addColorStop(0,   isFlash ? '#ffffff'    : lighten(pal2.accent, 0.22));
-  bg.addColorStop(0.5, isFlash ? '#bbddff'    : pal2.accent);
-  bg.addColorStop(1,   isFlash ? '#6688bb'    : blobDark);
+  bg.addColorStop(0,   isFlash ? '#ffffff' : cpPink);
+  bg.addColorStop(0.45,isFlash ? '#ffaaff' : cpMid);
+  bg.addColorStop(0.8, isFlash ? '#cc88ff' : cpPurple);
+  bg.addColorStop(1,   isFlash ? '#8844cc' : cpDeep);
   ctx.fillStyle = bg;
   ctx.fill();
 
@@ -2950,7 +2955,7 @@ function renderBoss() {
     const dBx  = bcx + Math.cos(da + Math.PI*0.5)*brx*0.82;
     const dBy2 = bcy + Math.sin(da + Math.PI*0.5)*bry*0.88;
     const dr2  = bw*0.034;
-    ctx.fillStyle = isFlash ? '#ffffff' : pal2.accent;
+    ctx.fillStyle = isFlash ? '#ffffff' : cpPink;
     ctx.beginPath();
     ctx.arc(dBx, dBy2, dr2, Math.PI, 0);
     ctx.bezierCurveTo(dBx+dr2, dBy2+dLen*0.6, dBx+dr2*0.3, dBy2+dLen, dBx, dBy2+dLen);
@@ -2966,8 +2971,8 @@ function renderBoss() {
     const ey = bcy - bh*0.1 + Math.sin(t*1.8+side*0.5)*bh*0.025;
     ctx.fillStyle = '#030303';
     ctx.beginPath(); ctx.ellipse(ex, ey, bw*0.1, bh*0.088, 0, 0, Math.PI*2); ctx.fill();
-    ctx.shadowColor = glowCol; ctx.shadowBlur = 16;
-    ctx.fillStyle = isFlash ? '#ffffff' : pal2.accent;
+    ctx.shadowColor = cpCyan; ctx.shadowBlur = 16;
+    ctx.fillStyle = isFlash ? '#ffffff' : cpCyan;
     ctx.beginPath(); ctx.ellipse(ex, ey, bw*0.052, bh*0.05, 0, 0, Math.PI*2); ctx.fill();
     ctx.shadowBlur = 0;
     ctx.fillStyle = 'rgba(255,255,255,0.65)';
@@ -2980,8 +2985,9 @@ function renderBoss() {
     const mR = bw*0.58 + bw*0.1*Math.sin(t*3.3+i);
     const al = 0.3 + 0.7*Math.abs(Math.sin(t*5.5+i*1.4));
     ctx.globalAlpha = al;
-    ctx.shadowColor = glowCol; ctx.shadowBlur = 10;
-    ctx.fillStyle = pal2.accent;
+    const moteCol = i % 2 === 0 ? cpPink : cpCyan;
+    ctx.shadowColor = moteCol; ctx.shadowBlur = 10;
+    ctx.fillStyle = moteCol;
     ctx.beginPath(); ctx.arc(bcx+Math.cos(ang)*mR, bcy+Math.sin(ang)*mR*0.52, 2.5, 0, Math.PI*2); ctx.fill();
   }
   ctx.globalAlpha = 1; ctx.shadowBlur = 0;
