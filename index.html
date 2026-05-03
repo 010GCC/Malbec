@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.8.0';
+const VERSION = '1.8.1';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -2242,6 +2242,8 @@ function updatePlayerDim(dt) {
 
 function renderBackground(pal) {
   const W = canvas.width, H = canvas.height;
+  const fw = FLOOR_Y();
+
   // Sky gradient
   const grad = ctx.createLinearGradient(0,0,0,H);
   grad.addColorStop(0, pal.sky);
@@ -2250,9 +2252,34 @@ function renderBackground(pal) {
   ctx.fillStyle = grad;
   ctx.fillRect(0,0,W,H);
 
-  // Parallax mid layer stars/elements
+  // Harvest moon
+  const moonX = W * 0.68 - GS.cameraX * 0.018;
+  const moonY = H * 0.17;
+  const moonR  = Math.max(28, H * 0.082);
+  ctx.save();
+  const mgr = ctx.createRadialGradient(moonX, moonY, moonR * 0.75, moonX, moonY, moonR * 3.0);
+  mgr.addColorStop(0,    'rgba(255,130,20,0.42)');
+  mgr.addColorStop(0.45, 'rgba(255,80,10,0.14)');
+  mgr.addColorStop(1,    'rgba(255,60,0,0)');
+  ctx.fillStyle = mgr;
+  ctx.beginPath(); ctx.arc(moonX, moonY, moonR * 3.0, 0, Math.PI*2); ctx.fill();
+  const mdisc = ctx.createRadialGradient(moonX - moonR*0.28, moonY - moonR*0.28, 0, moonX, moonY, moonR);
+  mdisc.addColorStop(0,    '#ffd070');
+  mdisc.addColorStop(0.55, '#ff9922');
+  mdisc.addColorStop(1,    '#bb4400');
+  ctx.fillStyle = mdisc;
+  ctx.beginPath(); ctx.arc(moonX, moonY, moonR, 0, Math.PI*2); ctx.fill();
+  const cRng = mulberry32(1337);
+  ctx.fillStyle = 'rgba(0,0,0,0.13)';
+  for (let i = 0; i < 6; i++) {
+    const ca = cRng()*Math.PI*2, cd = cRng()*moonR*0.65, cr = moonR*(0.06 + cRng()*0.1);
+    ctx.beginPath(); ctx.arc(moonX + Math.cos(ca)*cd, moonY + Math.sin(ca)*cd, cr, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.restore();
+
+  // Stars
   const offsetMid = GS.cameraX * 0.15;
-  ctx.globalAlpha = 0.15;
+  ctx.globalAlpha = 0.13;
   ctx.fillStyle = pal.accent;
   const rngB = mulberry32(Math.floor(GS.level*17 + 3));
   for (let i=0;i<40;i++) {
@@ -2262,6 +2289,115 @@ function renderBackground(pal) {
     ctx.fillRect(bx, by, bs, bs);
   }
   ctx.globalAlpha = 1;
+
+  // Far mountains (parallax 0.07)
+  {
+    const tileW = W * 2.2;
+    const offX  = GS.cameraX * 0.07;
+    const startX = -(offX % tileW);
+    const rngM = mulberry32(GS.level * 41 + 11);
+    const peakN = 14;
+    const pts = [];
+    for (let i = 0; i <= peakN; i++) {
+      const px = (i / peakN) * tileW + (rngM() - 0.5) * (tileW / peakN) * 0.4;
+      const py = fw - H * (0.16 + rngM() * 0.22);
+      pts.push({ x: clamp(px, 0, tileW), y: py });
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.48)';
+    for (let copy = 0; copy <= 1; copy++) {
+      const ox = startX + copy * tileW;
+      if (ox > W + 10 || ox + tileW < -10) continue;
+      ctx.beginPath();
+      ctx.moveTo(ox, H + 2);
+      ctx.lineTo(ox + pts[0].x, pts[0].y);
+      for (const pt of pts) ctx.lineTo(ox + pt.x, pt.y);
+      ctx.lineTo(ox + tileW, H + 2);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // Near hills (parallax 0.16)
+  {
+    const tileW = W * 1.8;
+    const offX  = GS.cameraX * 0.16;
+    const startX = -(offX % tileW);
+    const rngN = mulberry32(GS.level * 53 + 19);
+    const peakN = 10;
+    const pts = [];
+    for (let i = 0; i <= peakN; i++) {
+      const px = (i / peakN) * tileW + (rngN() - 0.5) * (tileW / peakN) * 0.35;
+      const py = fw - H * (0.07 + rngN() * 0.13);
+      pts.push({ x: clamp(px, 0, tileW), y: py });
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.65)';
+    for (let copy = 0; copy <= 1; copy++) {
+      const ox = startX + copy * tileW;
+      if (ox > W + 10 || ox + tileW < -10) continue;
+      ctx.beginPath();
+      ctx.moveTo(ox, H + 2);
+      ctx.lineTo(ox + pts[0].x, pts[0].y);
+      for (const pt of pts) ctx.lineTo(ox + pt.x, pt.y);
+      ctx.lineTo(ox + tileW, H + 2);
+      ctx.closePath(); ctx.fill();
+    }
+  }
+
+  // Silhouette trees (parallax 0.28)
+  {
+    const tileW  = W * 1.4;
+    const offX   = GS.cameraX * 0.28;
+    const startX = -(offX % tileW);
+    const rngT   = mulberry32(GS.level * 67 + 23);
+    const trees  = [];
+    for (let x = 0; x < tileW; ) {
+      x += rngT() * 72 + 28;
+      const h    = H * (0.08 + rngT() * 0.1);
+      const type = rngT() < 0.22 ? 'bare' : 'pine';
+      trees.push({ x, h, type });
+    }
+    ctx.fillStyle = 'rgba(0,0,0,0.78)';
+    ctx.strokeStyle = 'rgba(0,0,0,0.78)';
+    ctx.lineCap = 'round';
+    for (let copy = 0; copy <= 1; copy++) {
+      const ox = startX + copy * tileW;
+      if (ox > W + 150 || ox + tileW < -150) continue;
+      for (const tree of trees) {
+        const tx = ox + tree.x;
+        if (tx < -100 || tx > W + 100) continue;
+        const base = fw;
+        const tip  = base - tree.h;
+        if (tree.type === 'pine') {
+          const layers = 3;
+          for (let l = 0; l < layers; l++) {
+            const lf  = l / layers;
+            const ly  = tip + tree.h * lf * 0.68;
+            const lw  = tree.h * (0.40 - lf * 0.08);
+            const bot = tip + tree.h * ((l + 1) / layers) * 0.72;
+            ctx.beginPath();
+            ctx.moveTo(tx, ly);
+            ctx.lineTo(tx - lw, bot);
+            ctx.lineTo(tx + lw, bot);
+            ctx.closePath(); ctx.fill();
+          }
+          // Trunk
+          ctx.fillRect(tx - tree.h*0.045, base - tree.h*0.18, tree.h*0.09, tree.h*0.18);
+        } else {
+          // Bare / dead tree
+          const tw = tree.h * 0.065;
+          ctx.fillRect(tx - tw/2, tip, tw, tree.h);
+          ctx.lineWidth = tw * 0.55;
+          for (let b = 0; b < 4; b++) {
+            const bY  = tip + tree.h * (0.18 + b * 0.14);
+            const bDx = (b % 2 === 0 ? 1 : -1) * tree.h * 0.24;
+            ctx.beginPath();
+            ctx.moveTo(tx, bY);
+            ctx.lineTo(tx + bDx, bY - tree.h * 0.13);
+            ctx.stroke();
+          }
+        }
+      }
+    }
+  }
 }
 
 function renderPlatforms() {
