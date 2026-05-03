@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.6.7';
+const VERSION = '1.7.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1509,6 +1509,12 @@ function spawnEnemy(worldX) {
     alive: true,
     sprite: genSprite(seed, type==='torso'?52:28, type==='torso'?40:(flying?22:28), pal),
     seed,
+    // Blob (legs) animation state
+    blobPhase: 'move',
+    blobTimer: rand(0.4, 0.9),
+    // Alien (torso) animation state
+    alienPhase: 'stalk',
+    alienTimer: rand(0.8, 2.0),
   };
   GS.enemies.push(enemy);
 }
@@ -1544,13 +1550,37 @@ function updateEnemies(dt) {
       if (e.x - GS.cameraX < -50) e.vx = Math.abs(e.vx);
       if (e.x - GS.cameraX > canvas.width*0.9) e.vx = -Math.abs(e.vx);
     } else if (e.type === 'legs') {
-      e.vx = -Math.abs(e.vx) * dir;
-      e.x += dir * 70 * dt;
+      // Blob: burst toward player, short pause, repeat
+      e.blobTimer -= dt;
+      if (e.blobTimer <= 0) {
+        if (e.blobPhase === 'move') {
+          e.blobPhase = 'pause';
+          e.blobTimer = rand(0.28, 0.52);
+          e.vx = 0;
+        } else {
+          e.blobPhase = 'move';
+          e.blobTimer = rand(0.5, 1.0);
+          e.vx = dir * rand(100, 145);
+        }
+      }
+      if (e.blobPhase === 'move') e.x += e.vx * dt;
+      e.y = fw - e.h;
     } else {
-      // Torso: slow charge
-      if (Math.random() < 0.002) e.vx = dir * 160; // shoulder charge
+      // Alien: slow stalk then sudden lunge
+      e.alienTimer -= dt;
+      if (e.alienTimer <= 0) {
+        if (e.alienPhase === 'stalk') {
+          e.alienPhase = 'lunge';
+          e.alienTimer = rand(0.3, 0.55);
+          e.vx = dir * rand(190, 260);
+        } else {
+          e.alienPhase = 'stalk';
+          e.alienTimer = rand(1.2, 2.2);
+        }
+      }
+      if (e.alienPhase === 'stalk') e.vx = lerp(e.vx, dir * 48, 0.05);
+      else e.vx *= 0.94;
       e.x += e.vx * dt;
-      e.vx = lerp(e.vx, dir * 40, 0.03);
       e.y = fw - e.h;
     }
 
@@ -2408,63 +2438,157 @@ function drawEnemyHead(ctx, x, y, w, h, pal, flash) {
   }
 }
 
-function drawEnemyLegs(ctx, x, y, w, h, pal, flash) {
-  const base = flash > 0 ? '#fff' : pal.accent;
-  const dk = flash > 0 ? '#ccc' : darken(pal.accent, 0.35);
-  const boot = flash > 0 ? '#888' : darken(pal.accent, 0.55);
-  const lw = w * 0.34, gap = w * 0.08;
-  const lx = x + w/2 - lw - gap/2;
-  const rx2 = x + w/2 + gap/2;
-  const thighH = h * 0.45, shinH = h * 0.38, bootH = h * 0.17;
-  // Thighs
-  ctx.fillStyle = base;
-  ctx.fillRect(lx,  y, lw, thighH);
-  ctx.fillRect(rx2, y, lw, thighH);
-  // Knee band
-  ctx.fillStyle = dk;
-  ctx.fillRect(lx,  y + thighH - 3, lw, 5);
-  ctx.fillRect(rx2, y + thighH - 3, lw, 5);
-  // Shins
-  ctx.fillStyle = dk;
-  ctx.fillRect(lx  + 2, y + thighH, lw - 4, shinH);
-  ctx.fillRect(rx2 + 2, y + thighH, lw - 4, shinH);
-  // Boots
-  ctx.fillStyle = boot;
-  ctx.fillRect(lx  - 2, y + thighH + shinH, lw + 4, bootH);
-  ctx.fillRect(rx2 - 2, y + thighH + shinH, lw + 4, bootH);
-  // Highlight stripe on thigh
-  ctx.fillStyle = 'rgba(255,255,255,0.18)';
-  ctx.fillRect(lx  + 2, y + 2, 3, thighH - 4);
-  ctx.fillRect(rx2 + 2, y + 2, 3, thighH - 4);
+function drawEnemyLegs(ctx, x, y, w, h, pal, flash, enemy) {
+  const t = enemy ? GS.levelTimer + enemy.seed * 0.0001 : GS.levelTimer;
+  const moving = !enemy || enemy.blobPhase === 'move';
+  // Squish: stretched horizontal when moving, compressed vertical when paused
+  const sqX = moving ? (1.18 + 0.04*Math.sin(t*14)) : (0.82 + 0.04*Math.sin(t*9));
+  const sqY = moving ? 0.8 : (1.12 + 0.08*Math.sin(t*9));
+  const cx = x + w/2;
+  const cy = y + h * (moving ? 0.62 : 0.52);
+  const rx = w * 0.44 * sqX;
+  const ry = h * 0.44 * sqY;
+  const col = flash > 0 ? '#ffffff' : pal.accent;
+
+  ctx.save();
+
+  // Outer halo
+  ctx.shadowColor = pal.accent;
+  ctx.shadowBlur = 22 + 8*Math.sin(t*3.2);
+  ctx.fillStyle = col + '38';
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx*1.45, ry*1.45, 0, 0, Math.PI*2); ctx.fill();
+
+  // Body
+  ctx.shadowBlur = 12;
+  ctx.fillStyle = col;
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.fill();
+
+  // Inner radial highlight
+  ctx.shadowBlur = 0;
+  const grad = ctx.createRadialGradient(cx - rx*0.22, cy - ry*0.22, 0, cx, cy, Math.max(rx, ry)*0.95);
+  grad.addColorStop(0, 'rgba(255,255,255,0.7)');
+  grad.addColorStop(0.45, 'rgba(255,255,255,0.08)');
+  grad.addColorStop(1, 'rgba(255,255,255,0)');
+  ctx.fillStyle = grad;
+  ctx.beginPath(); ctx.ellipse(cx, cy, rx, ry, 0, 0, Math.PI*2); ctx.fill();
+
+  // Eyes
+  const eyeOff = rx * 0.3;
+  const eyeY = cy - ry*0.16;
+  ctx.fillStyle = '#111';
+  ctx.beginPath(); ctx.ellipse(cx - eyeOff, eyeY, rx*0.14, ry*0.17, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx + eyeOff, eyeY, rx*0.14, ry*0.17, 0, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = '#fff'; ctx.shadowColor = '#fff'; ctx.shadowBlur = 8;
+  ctx.beginPath(); ctx.arc(cx - eyeOff, eyeY, rx*0.065, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(cx + eyeOff, eyeY, rx*0.065, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Orbiting sparkles
+  const sc = 6;
+  for (let i = 0; i < sc; i++) {
+    const angle = (i/sc)*Math.PI*2 + t*1.9;
+    const dist = Math.max(rx, ry) * (1.18 + 0.14*Math.sin(t*4.2 + i));
+    const alpha = 0.35 + 0.65*Math.abs(Math.sin(t*5.5 + i*1.2));
+    ctx.globalAlpha = alpha;
+    ctx.fillStyle = '#fff'; ctx.shadowColor = pal.accent; ctx.shadowBlur = 7;
+    ctx.beginPath(); ctx.arc(cx + Math.cos(angle)*dist, cy + Math.sin(angle)*dist*0.65, 1.8, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+  ctx.restore();
 }
 
-function drawEnemyTorso(ctx, x, y, w, h, pal, flash) {
-  const base  = flash > 0 ? '#fff' : pal.accent;
-  const dk    = flash > 0 ? '#ccc' : darken(pal.accent, 0.35);
-  const lt    = flash > 0 ? '#fff' : lighten(pal.accent, 0.25);
-  const bw = w * 0.52, bx = x + (w - bw)/2;
-  const aw = w * 0.18;
-  // Body
+function drawEnemyTorso(ctx, x, y, w, h, pal, flash, enemy) {
+  const t = enemy ? GS.levelTimer + enemy.seed * 0.0001 : GS.levelTimer;
+  const cx = x + w/2;
+  const base = flash > 0 ? '#fff' : pal.accent;
+  const dk   = flash > 0 ? '#ccc' : darken(pal.accent, 0.4);
+  const lt   = flash > 0 ? '#fff' : lighten(pal.accent, 0.35);
+
+  ctx.save();
+
+  // --- Segmented body (lower 52%) ---
+  const bodyPulse = 1 + 0.03*Math.sin(t*3.6);
+  const bodyW = w * 0.46 * bodyPulse;
+  const bodyTop = y + h*0.44;
+  const bodyH = h * 0.52;
+  ctx.shadowColor = pal.accent; ctx.shadowBlur = 8;
   ctx.fillStyle = base;
-  ctx.fillRect(bx, y + h*0.05, bw, h * 0.9);
-  // Highlight
-  ctx.fillStyle = lt;
-  ctx.fillRect(bx + 3, y + h*0.05, 4, h * 0.9);
-  // Shadow
+  ctx.beginPath(); ctx.ellipse(cx, bodyTop + bodyH/2, bodyW/2, bodyH/2, 0, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
   ctx.fillStyle = dk;
-  ctx.fillRect(bx + bw - 4, y + h*0.05, 4, h * 0.9);
-  // Spine detail
-  ctx.fillStyle = 'rgba(0,0,0,0.25)';
-  ctx.fillRect(bx + bw/2 - 2, y + h*0.1, 4, h * 0.8);
-  // Arms
-  ctx.fillStyle = dk;
-  ctx.fillRect(x, y + h*0.1, aw, h * 0.7);
-  ctx.fillRect(x + w - aw, y + h*0.1, aw, h * 0.7);
-  // Severed neck top — ragged
-  ctx.fillStyle = '#7a0000';
-  ctx.fillRect(bx + bw*0.2, y, bw*0.6, h*0.07);
-  // Severed legs bottom — ragged
-  ctx.fillRect(bx + bw*0.15, y + h*0.93, bw*0.7, h*0.07);
+  for (let i = 1; i < 4; i++) {
+    const sy = bodyTop + bodyH*(i/4) - 1;
+    const segW = bodyW*(0.9 - 0.12*Math.abs(i - 1.5));
+    ctx.fillRect(cx - segW/2 + 2, sy, segW - 4, 2);
+  }
+
+  // --- Arms (2, animated swing) ---
+  ctx.lineWidth = 3;
+  for (let side = -1; side <= 1; side += 2) {
+    const ap = t*2.6 + (side > 0 ? Math.PI : 0);
+    const sx2 = cx + side * bodyW/2;
+    const sy2 = bodyTop + bodyH*0.22;
+    const ex2 = sx2 + side*(w*0.28 + w*0.07*Math.sin(ap));
+    const ey2 = sy2 + h*0.08*Math.sin(ap + 0.6) - h*0.03;
+    const hx = ex2 + side*w*0.1;
+    const hy = ey2 + h*0.13 + h*0.05*Math.cos(ap);
+    ctx.strokeStyle = dk; ctx.shadowColor = pal.accent; ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.moveTo(sx2, sy2); ctx.quadraticCurveTo(ex2, ey2, hx, hy); ctx.stroke();
+    ctx.fillStyle = base; ctx.shadowBlur = 4;
+    ctx.beginPath(); ctx.arc(hx, hy, 3.5, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+    ctx.strokeStyle = lt; ctx.lineWidth = 1.5;
+    for (let c = -1; c <= 1; c++) {
+      ctx.beginPath(); ctx.moveTo(hx, hy); ctx.lineTo(hx + side*5 + c*3, hy + 5); ctx.stroke();
+    }
+    ctx.lineWidth = 3;
+  }
+
+  // --- Head (top 48%) ---
+  const hcx = cx, hcy = y + h*0.22;
+  const hrx = w*0.3, hry = h*0.24;
+  ctx.shadowColor = pal.accent; ctx.shadowBlur = 10;
+  ctx.fillStyle = base;
+  ctx.beginPath(); ctx.ellipse(hcx, hcy, hrx, hry, 0, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Big almond eyes
+  const eox = hrx*0.44, eoy = hcy - hry*0.05;
+  ctx.fillStyle = '#080808';
+  ctx.beginPath(); ctx.ellipse(hcx - eox, eoy, hrx*0.33, hry*0.43, -0.22, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(hcx + eox, eoy, hrx*0.33, hry*0.43,  0.22, 0, Math.PI*2); ctx.fill();
+  ctx.fillStyle = lt; ctx.shadowColor = lt; ctx.shadowBlur = 10 + 4*Math.sin(t*4.8);
+  ctx.beginPath(); ctx.arc(hcx - eox, eoy, hrx*0.13, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.arc(hcx + eox, eoy, hrx*0.13, 0, Math.PI*2); ctx.fill();
+  ctx.shadowBlur = 0;
+
+  // Mouth — slit that opens and shows teeth
+  const mOpen = Math.max(1.2, Math.sin(t*2.3) * hry*0.28);
+  ctx.fillStyle = '#000';
+  ctx.beginPath(); ctx.ellipse(hcx, hcy + hry*0.52, hrx*0.44, mOpen, 0, 0, Math.PI*2); ctx.fill();
+  if (mOpen > 3) {
+    ctx.fillStyle = 'rgba(255,255,255,0.78)';
+    for (let i = 0; i < 4; i++) {
+      const tx = hcx - hrx*0.34 + i*hrx*0.22;
+      const ty = hcy + hry*0.52;
+      ctx.beginPath(); ctx.moveTo(tx, ty); ctx.lineTo(tx + hrx*0.08, ty + mOpen*0.9); ctx.lineTo(tx + hrx*0.16, ty); ctx.fill();
+    }
+  }
+
+  // Antennae
+  ctx.lineWidth = 1.5;
+  for (let side = -1; side <= 1; side += 2) {
+    const abx = hcx + side*hrx*0.28, aby = hcy - hry*0.88;
+    const atx = abx + side*hrx*0.38 + Math.sin(t*3.2 + side)*4;
+    const aty = aby - h*0.17;
+    ctx.strokeStyle = base; ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.moveTo(abx, aby); ctx.quadraticCurveTo(abx + side*hrx*0.22, aby - h*0.09, atx, aty); ctx.stroke();
+    ctx.fillStyle = lt; ctx.shadowColor = lt; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(atx, aty, 2.5, 0, Math.PI*2); ctx.fill();
+    ctx.shadowBlur = 0;
+  }
+
+  ctx.restore();
 }
 
 function renderEnemy(e) {
@@ -2482,9 +2606,9 @@ function renderEnemy(e) {
   if (e.type === 'head') {
     drawEnemyHead(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
   } else if (e.type === 'legs') {
-    drawEnemyLegs(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
+    drawEnemyLegs(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash, e);
   } else {
-    drawEnemyTorso(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
+    drawEnemyTorso(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash, e);
   }
   ctx.restore();
 }
@@ -2670,8 +2794,8 @@ function renderDimensionalRoom() {
         ctx.globalAlpha = Math.max(0.2, 1 - a.timer * 0.6);
       }
       if (part.type === 'head')       drawEnemyHead(ctx, part.x, part.y, part.w, part.h, pal, 0);
-      else if (part.type === 'legs')  drawEnemyLegs(ctx, part.x, part.y, part.w, part.h, pal, 0);
-      else                            drawEnemyTorso(ctx, part.x, part.y, part.w, part.h, pal, 0);
+      else if (part.type === 'legs')  drawEnemyLegs(ctx, part.x, part.y, part.w, part.h, pal, 0, null);
+      else                            drawEnemyTorso(ctx, part.x, part.y, part.w, part.h, pal, 0, null);
       ctx.restore();
     }
   }
