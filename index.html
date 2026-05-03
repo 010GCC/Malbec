@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.8.1';
+const VERSION = '1.8.2';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1962,6 +1962,7 @@ function enterDimensionalRoom() {
   dr.flashTimer = 0;
   dr.flashCount = 0;
   dr.assemble = null;
+  dr.exitTimer = 0;
   const invSide = Math.random() < 0.5 ? 0 : 1;
   const dimFloorY = canvas.height - 80 - 80; // doors sit at the bottom boundary
   dr.exitDoors = [
@@ -2009,14 +2010,18 @@ function updateDimensionalRoom(dt) {
   const p = GS.player;
 
   if (dr.phase === 'exit') {
+    dr.exitTimer = (dr.exitTimer || 0) + dt;
     // Check door interaction
     for (const door of dr.exitDoors) {
       if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:door.x,y:door.y,w:door.w,h:door.h})) {
         if (Keys.just['ArrowUp'] || Keys.just['KeyW']) {
           exitDimensionalRoom(door.type);
+          return;
         }
       }
     }
+    // Safety: auto-exit after 12s so player never gets stuck
+    if (dr.exitTimer > 12) exitDimensionalRoom('B');
     return;
   }
 
@@ -2103,9 +2108,37 @@ function updateDimAssemble(dt) {
       GS.announceAlpha = 2.5;
     }
   } else if (a.subPhase === 'hold') {
-    if (a.timer > 1.4) {
+    if (a.timer > 0.9) {
+      a.subPhase = 'dance';
+      a.danceTimer = 0;
+      a.danceVx = (Math.random() < 0.5 ? 1 : -1) * (130 + Math.random() * 90);
+      a.danceVy = (Math.random() < 0.5 ? 1 : -1) * (90 + Math.random() * 70);
+      GS.announceText = 'IT DANCES';
+      GS.announceAlpha = 2.0;
+    }
+  } else if (a.subPhase === 'dance') {
+    a.danceTimer += dt;
+    const W = canvas.width, H = canvas.height;
+    // Gentle random steering
+    a.danceVx += (Math.random() - 0.5) * 140 * dt;
+    a.danceVy += (Math.random() - 0.5) * 100 * dt;
+    const spd = Math.hypot(a.danceVx, a.danceVy);
+    if (spd > 240) { a.danceVx *= 240/spd; a.danceVy *= 240/spd; }
+    if (spd < 80)  { a.danceVx *= 80/spd;  a.danceVy *= 80/spd; }
+    // Bounce off room walls using torso (index 1) as reference
+    const ref = a.parts[1];
+    if (ref.x < 50 || ref.x + ref.w > W - 50) a.danceVx *= -1;
+    if (ref.y < 70 || ref.y + ref.h > H - 130) a.danceVy *= -1;
+    for (const part of a.parts) {
+      part.x += a.danceVx * dt;
+      part.y += a.danceVy * dt;
+    }
+    if (a.danceTimer >= 5.5) {
       a.subPhase = 'flee';
       a.timer = 0;
+      GS.flashAlpha = 0.7;
+      GS.announceText = 'IT FLEES';
+      GS.announceAlpha = 2.5;
     }
   } else if (a.subPhase === 'flee') {
     const spd = 750;
@@ -3049,6 +3082,15 @@ function renderDimensionalRoom() {
       if (a.subPhase === 'hold') {
         ctx.shadowColor = pal.accent;
         ctx.shadowBlur = 20 + Math.sin(GS.levelTimer * 9) * 10;
+      } else if (a.subPhase === 'dance') {
+        const pulse = 22 + 14 * Math.sin(GS.levelTimer * 11);
+        ctx.shadowColor = pal.accent;
+        ctx.shadowBlur = pulse;
+        // Scale bob centred on part
+        const sc = 1 + 0.06 * Math.sin(GS.levelTimer * 8 + (part.type === 'head' ? 0 : part.type === 'torso' ? 1.2 : 2.4));
+        ctx.translate(part.x + part.w/2, part.y + part.h/2);
+        ctx.scale(sc, sc);
+        ctx.translate(-(part.x + part.w/2), -(part.y + part.h/2));
       } else if (a.subPhase === 'flee') {
         ctx.globalAlpha = Math.max(0.2, 1 - a.timer * 0.6);
       }
