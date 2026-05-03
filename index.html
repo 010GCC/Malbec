@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.7.1';
+const VERSION = '1.8.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -853,42 +853,40 @@ function generateLevel() {
 }
 
 function spawnBoss() {
-  const pal = GS.world.palette;
-  // Procedural boss: 14^3 combinations
-  const headIdx = randInt(0,13);
-  const bodyIdx = randInt(0,13);
-  const legIdx  = randInt(0,13);
-  const headHP   = 3;
-  const bodyHP   = 3;
-  const legHP    = 3;
-
+  const fw = FLOOR_Y();
   GS.boss = {
-    x: GS.cameraX + canvas.width * 0.7,
-    y: 0,
-    w: 80, h: 120,
-    headIdx, bodyIdx, legIdx,
+    x: GS.cameraX + canvas.width * 0.72,
+    y: fw - 150,
+    w: 88, h: 150,
     headHits: 0, bodyHits: 0, legHits: 0,
-    headHP, bodyHP, legHP,
-    legless: false,
-    leglessKillHit: false,
-    phase: 'tank', // flight | tank | ground
+    headHP: 3, bodyHP: 3, legHP: 3,
+    // State machine
+    phase: 'approach',
     phaseTimer: 0,
+    approachCount: 0,
+    orbCooldown: 0,
+    orbs: [],
+    // Physics
     vx: 0, vy: 0,
-    hp: 100, // visual only
-    redTint: 0, // 0-1 as it dies
-    attackTimer: 0,
-    alive: true,
-    sprite: genSprite(headIdx*100+bodyIdx*10+legIdx, 80, 120, pal),
-    headSprite: genSprite(headIdx*7+1001, 40, 36, pal),
-    bodySprite: genSprite(bodyIdx*7+2001, 60, 50, pal),
-    legSprite: genSprite(legIdx*7+3001, 70, 34, pal),
-    dyingTimer: 0,
-    dying: false,
-    dead: false,
+    onGround: true,
+    // Animation
+    t: 0,
+    danceT: 0,
+    danceFired: false,
+    puffScale: 1,
+    puffVel: 0,
+    // Visual
+    hp: 100,
+    redTint: 0,
     hitFlash: 0,
     hitFlashZone: null,
+    alive: true,
+    dying: false,
+    dead: false,
+    dyingTimer: 0,
+    legless: false,
+    headSprite: null,
   };
-  GS.boss.y = FLOOR_Y() - GS.boss.h;
   GS.bossActive = true;
 }
 
@@ -1334,24 +1332,10 @@ function updateBullets(dt) {
       const bsx = boss.x - GS.cameraX;
       if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:bsx,y:boss.y,w:boss.w,h:boss.h})) {
         spawnParticles(sx, b.y, 6, {color:GUN_DEFS[b.gunType].color,speedMin:60,speedMax:200,lifeMin:0.1,lifeMax:0.3,sizeMin:2,sizeMax:4,upBias:30});
-        const zone = b.y < boss.y + boss.h*0.35 ? 'head'
+        const zone = b.y < boss.y + boss.h*0.38 ? 'head'
                    : b.y < boss.y + boss.h*0.68 ? 'body' : 'legs';
-        boss.hitFlash = 0.18; boss.hitFlashZone = zone;
-        if (zone === 'head') {
-          boss.headHits++;
-          if (boss.headHits >= boss.headHP) { boss.alive = false; boss.dying = true; sfxBossDeath(); }
-        } else if (zone === 'body') {
-          boss.bodyHits++;
-          if (boss.bodyHits >= boss.bodyHP) { boss.alive = false; boss.dying = true; sfxBossDeath(); }
-        } else {
-          boss.legHits++;
-          if (boss.legHits >= boss.legHP && !boss.legless) {
-            boss.legless = true; boss.vx = 0; sfxBoss();
-            spawnParticles(bsx+boss.w/2, boss.y+boss.h, 20, {color:'#ffffff',speedMin:100,speedMax:400,lifeMin:0.4,lifeMax:0.9,sizeMin:2,sizeMax:6});
-          }
-        }
+        hitBossZone(boss, zone, bsx);
         GS.score += 100;
-        boss.headHits + boss.bodyHits + boss.legHits > 0 && updateHUD();
         if (b.gunType !== 'railgun') b.alive = false;
       }
     }
@@ -1636,129 +1620,170 @@ function updateBoss(dt) {
   const fw = FLOOR_Y();
   const W = canvas.width;
 
-  if (boss.dying) {
-    boss.dyingTimer += dt;
-    GS.screenDistortion = Math.min(1, boss.dyingTimer / 3);
-    if (boss.dyingTimer > 3.5) {
-      boss.dead = true;
-      triggerBossDeath();
-    }
-    return;
-  }
-
-  if (!boss.alive) return;
-
-  boss.phaseTimer += dt;
-  boss.attackTimer -= dt;
+  boss.t += dt;
   if (boss.hitFlash > 0) boss.hitFlash -= dt;
 
-  // Phase switching (damage-triggered)
+  // HP / tint
   const totalHits = boss.headHits + boss.bodyHits + boss.legHits;
   const hpPct = 1 - totalHits / (boss.headHP + boss.bodyHP + boss.legHP);
   boss.hp = hpPct * 100;
   boss.redTint = clamp(1 - hpPct, 0, 1);
-  GS.screenDistortion = boss.redTint * 0.6;
+  GS.screenDistortion = boss.redTint * 0.5;
 
-  // Phase cycling
-  if (boss.phaseTimer > 5) {
-    boss.phaseTimer = 0;
-    if (boss.phase === 'flight') boss.phase = 'tank';
-    else if (boss.phase === 'tank') boss.phase = 'ground';
-    else boss.phase = 'flight';
+  if (boss.dying) {
+    boss.dyingTimer += dt;
+    GS.screenDistortion = Math.min(1, boss.dyingTimer / 3);
+    if (boss.dyingTimer > 3.5) { boss.dead = true; triggerBossDeath(); }
+    return;
   }
+  if (!boss.alive) return;
 
-  // Movement based on phase
+  // Puff spring
+  boss.puffVel += (1 - boss.puffScale) * 38 * dt - boss.puffVel * 7 * dt;
+  boss.puffScale += boss.puffVel * dt;
+  boss.puffScale = clamp(boss.puffScale, 0.7, 1.5);
+
+  // Gravity
+  if (!boss.onGround) {
+    boss.vy += 700 * dt;
+    boss.y += boss.vy * dt;
+    if (boss.y >= fw - boss.h) {
+      boss.y = fw - boss.h;
+      boss.vy = 0;
+      boss.onGround = true;
+      boss.puffScale = 1.22; boss.puffVel = -4;
+      spawnParticles(boss.x - GS.cameraX + boss.w/2, fw, 10, {color:'#aaeeff',speedMin:40,speedMax:160,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5});
+    }
+  }
+  boss.x += boss.vx * dt;
+  boss.x = clamp(boss.x, GS.cameraX + W * 0.05, GS.cameraX + W * 0.92);
+
+  boss.phaseTimer += dt;
   const dx = p.x - boss.x;
   const dir = dx < 0 ? -1 : 1;
-  if (boss.phase === 'flight') {
-    boss.y = lerp(boss.y, fw*0.25, 0.02);
-    boss.x += dir * 120 * dt;
-  } else if (boss.phase === 'tank') {
-    boss.y = lerp(boss.y, fw - boss.h, 0.05);
-    boss.x += dir * 60 * dt;
-  } else {
-    boss.y = lerp(boss.y, fw - boss.h * 0.7, 0.04);
-    boss.x += dir * 90 * dt;
-  }
 
-  boss.x = clamp(boss.x, W * 0.3, W * 0.85);
+  // ── State machine ─────────────────────────
+  if (boss.phase === 'approach') {
+    boss.vx = lerp(boss.vx, dir * 55, 0.06);
+    if (boss.onGround) boss.y = fw - boss.h;
 
-  // Attack: boss deals damage on contact
-  const bx = boss.x - GS.cameraX;
-  if (rectsOverlap({x:bx, y:boss.y, w:boss.w, h:boss.h}, {x:p.x - GS.cameraX + 2, y:p.y, w:p.w-4, h:p.h}) && !p.isEvading) {
-    const dmg = boss.phase === 'tank' ? 12 : (boss.phase === 'flight' ? 8 : 10);
-    takeDamage(dmg * dt);
-  }
-
-  // Player attack vs boss parts
-  if (p.attackHitbox) {
-    let hitPart = null;
-    const ah = p.attackHitbox;
-    // Head zone: top third
-    const headZone = { x:boss.x-GS.cameraX+10, y:boss.y, w:boss.w-20, h:boss.h*0.35 };
-    // Body zone: middle
-    const bodyZone = { x:boss.x-GS.cameraX+5, y:boss.y+boss.h*0.33, w:boss.w-10, h:boss.h*0.35 };
-    // Leg zone: bottom
-    const legZone  = { x:boss.x-GS.cameraX+10, y:boss.y+boss.h*0.65, w:boss.w-20, h:boss.h*0.35 };
-
-    if (boss.phase === 'flight' && rectsOverlap(ah, headZone)) {
-      hitPart = 'head';
-    } else if (boss.phase === 'tank' && rectsOverlap(ah, bodyZone)) {
-      hitPart = 'body';
-    } else if (boss.phase === 'ground' && !boss.legless && rectsOverlap(ah, legZone)) {
-      hitPart = 'legs';
-    } else if (boss.legless && rectsOverlap(ah, {x:boss.x-GS.cameraX, y:boss.y, w:boss.w, h:boss.h})) {
-      hitPart = 'legless_kill';
+    boss.orbCooldown -= dt;
+    if (boss.orbCooldown <= 0) {
+      boss.orbCooldown = 1.8;
+      bossFireOrb(boss, p, 0);
     }
 
-    if (hitPart) {
-      p.attackHitbox = null;
-      p.attackTimer = 0;
-      GS.score += 500;
-      sfxHit();
-      // Screen crack effect
-      GS.screenCracks.push({
-        x: rand(0.1,0.9), y: rand(0.1,0.9),
-        life: 8, maxLife: 8,
-        angle: rand(0, Math.PI),
-        len: rand(50, 200),
-      });
+    if (boss.phaseTimer >= 4.0) {
+      boss.phase = 'dance';
+      boss.phaseTimer = 0;
+      boss.danceT = 0;
+      boss.danceFired = false;
+      boss.vx = 0;
+      boss.vy = -420;
+      boss.onGround = false;
+    }
 
-      boss.hitFlash = 0.18; boss.hitFlashZone = hitPart;
-      if (hitPart === 'head') {
-        boss.headHits++;
-        spawnParticles(bx+boss.w/2, boss.y+10, 12, {color:'#ff4466',speedMin:100,speedMax:350,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7,upBias:100});
-        if (boss.headHits >= boss.headHP) {
-          boss.alive = false;
-          boss.dying = true;
-          sfxBossDeath();
-        }
-      } else if (hitPart === 'body') {
-        boss.bodyHits++;
-        spawnParticles(bx+boss.w/2, boss.y+boss.h/2, 12, {color:'#ff8800',speedMin:80,speedMax:280,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7});
-        if (boss.bodyHits >= boss.bodyHP) {
-          boss.alive = false;
-          boss.dying = true;
-          sfxBossDeath();
-        }
-      } else if (hitPart === 'legs') {
-        boss.legHits++;
-        spawnParticles(bx+boss.w/2, boss.y+boss.h-10, 10, {color:'#ffaa00',speedMin:60,speedMax:200,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5});
-        if (boss.legHits >= boss.legHP) {
-          boss.legless = true;
-          boss.vx = 0;
-          // Legless: faster, more erratic
-          spawnParticles(bx+boss.w/2, boss.y+boss.h, 20, {color:'#ffffff',speedMin:100,speedMax:400,lifeMin:0.4,lifeMax:0.9,sizeMin:2,sizeMax:6});
-          sfxBoss();
-        }
-      } else if (hitPart === 'legless_kill') {
-        boss.alive = false;
-        boss.dying = true;
-        sfxBossDeath();
+  } else if (boss.phase === 'dance') {
+    boss.danceT += dt;
+    boss.vx = lerp(boss.vx, 0, 0.12);
+
+    if (boss.onGround && !boss.danceFired && boss.danceT > 0.5) {
+      boss.danceFired = true;
+      bossFireOrb(boss, p, -0.28);
+      bossFireOrb(boss, p,  0.0);
+      bossFireOrb(boss, p,  0.28);
+      boss.puffScale = 1.4; boss.puffVel = -6;
+    }
+
+    if (boss.danceT >= 2.5) {
+      boss.approachCount++;
+      if (boss.approachCount >= 3) {
+        boss.phase = 'jump_over';
+        boss.phaseTimer = 0;
+        boss.approachCount = 0;
+        const targetX = p.x + dir * (W * 0.48);
+        boss.vx = clamp((targetX - boss.x) / 1.1, -600, 600);
+        boss.vy = -540;
+        boss.onGround = false;
+      } else {
+        boss.phase = 'approach';
+        boss.phaseTimer = 0;
+        boss.orbCooldown = 0.5;
       }
-      updateHUD();
+    }
+
+  } else if (boss.phase === 'jump_over') {
+    if (boss.onGround && boss.phaseTimer > 0.4) {
+      boss.phase = 'approach';
+      boss.phaseTimer = 0;
+      boss.orbCooldown = 0.8;
+      boss.vx = 0;
     }
   }
+
+  // Update orbs
+  for (const orb of boss.orbs) {
+    if (!orb.alive) continue;
+    orb.t += dt;
+    orb.x += orb.vx * dt;
+    orb.y += orb.vy * dt;
+    if (orb.x < GS.cameraX - 120 || orb.x > GS.cameraX + W + 120 || orb.t > 5) { orb.alive = false; continue; }
+    const ox = orb.x - GS.cameraX;
+    const dist = Math.hypot(ox - (p.x - GS.cameraX + p.w/2), orb.y - (p.y + p.h/2));
+    if (dist < orb.r + p.w * 0.35 && !p.isEvading) {
+      takeDamage(12);
+      orb.alive = false;
+      spawnParticles(ox, orb.y, 8, {color:'#44ffee',speedMin:80,speedMax:260,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5});
+    }
+  }
+  boss.orbs = boss.orbs.filter(o => o.alive);
+
+  // Melee hit
+  if (p.attackHitbox) {
+    const bsx = boss.x - GS.cameraX;
+    if (rectsOverlap(p.attackHitbox, {x:bsx, y:boss.y, w:boss.w, h:boss.h})) {
+      const ay = p.attackHitbox.y;
+      const zone = ay < boss.y + boss.h*0.38 ? 'head' : ay < boss.y + boss.h*0.68 ? 'body' : 'legs';
+      hitBossZone(boss, zone, bsx);
+      p.attackHitbox = null; p.attackTimer = 0;
+    }
+  }
+
+  // Contact damage
+  const bsx = boss.x - GS.cameraX;
+  if (rectsOverlap({x:bsx, y:boss.y, w:boss.w, h:boss.h}, {x:p.x-GS.cameraX+2, y:p.y, w:p.w-4, h:p.h}) && !p.isEvading) {
+    takeDamage(9 * dt);
+  }
+}
+
+function bossFireOrb(boss, p, angleOffset) {
+  const dx = p.x - boss.x;
+  const dy = (p.y + p.h/2) - (boss.y + boss.h*0.4);
+  const len = Math.hypot(dx, dy) || 1;
+  const speed = 115;
+  const angle = Math.atan2(dy, dx) + angleOffset;
+  boss.orbs.push({ x: boss.x + boss.w/2, y: boss.y + boss.h*0.4, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, r: 10, t: 0, alive: true });
+}
+
+function hitBossZone(boss, zone, bsx) {
+  GS.score += 500;
+  sfxHit();
+  boss.hitFlash = 0.18; boss.hitFlashZone = zone;
+  GS.screenCracks.push({ x:rand(0.1,0.9), y:rand(0.1,0.9), life:8, maxLife:8, angle:rand(0,Math.PI), len:rand(50,200) });
+  if (zone === 'head') {
+    boss.headHits++;
+    spawnParticles(bsx+boss.w/2, boss.y+10, 12, {color:'#aaeeff',speedMin:100,speedMax:350,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7,upBias:100});
+    if (boss.headHits >= boss.headHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
+  } else if (zone === 'body') {
+    boss.bodyHits++;
+    spawnParticles(bsx+boss.w/2, boss.y+boss.h/2, 12, {color:'#ffffff',speedMin:80,speedMax:280,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7});
+    if (boss.bodyHits >= boss.bodyHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
+  } else {
+    boss.legHits++;
+    spawnParticles(bsx+boss.w/2, boss.y+boss.h-10, 10, {color:'#aaeeff',speedMin:60,speedMax:200,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5});
+    if (boss.legHits >= boss.legHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
+  }
+  updateHUD();
 }
 
 function triggerBossDeath() {
@@ -2622,45 +2647,138 @@ function renderBoss() {
   if (!GS.boss || GS.boss.dead) return;
   const boss = GS.boss;
   const sx = boss.x - GS.cameraX;
+  const t = boss.t;
 
   ctx.save();
 
-  // Red tint as health drops
-  if (boss.redTint > 0) {
-    ctx.filter = `hue-rotate(${boss.redTint*30}deg) saturate(${1+boss.redTint*2})`;
+  // Orbs
+  for (const orb of boss.orbs) {
+    const ox = orb.x - GS.cameraX;
+    ctx.save();
+    ctx.shadowColor = '#44ffee'; ctx.shadowBlur = 18 + 6*Math.sin(orb.t*8);
+    const og = ctx.createRadialGradient(ox, orb.y, 0, ox, orb.y, orb.r);
+    og.addColorStop(0, '#ffffff'); og.addColorStop(0.4, '#aaffee'); og.addColorStop(1, '#0077ee');
+    ctx.fillStyle = og;
+    ctx.beginPath(); ctx.arc(ox, orb.y, orb.r, 0, Math.PI*2); ctx.fill();
+    ctx.strokeStyle = '#88ffee'; ctx.lineWidth = 1.2; ctx.shadowBlur = 5;
+    for (let i = 0; i < 4; i++) {
+      const a = orb.t*5 + i*Math.PI/2;
+      const d = orb.r*(1.35 + 0.3*Math.sin(orb.t*9+i));
+      ctx.beginPath(); ctx.moveTo(ox+Math.cos(a)*orb.r*0.7, orb.y+Math.sin(a)*orb.r*0.7);
+      ctx.lineTo(ox+Math.cos(a)*d, orb.y+Math.sin(a)*d); ctx.stroke();
+    }
+    ctx.restore();
   }
 
-  // Draw base sprite
-  if (boss.sprite) ctx.drawImage(boss.sprite, sx, boss.y, boss.w, boss.h);
+  // Stay Puft
+  const bw = boss.w, bh = boss.h;
+  const ps = boss.puffScale;
+  const bobY = boss.onGround ? Math.sin(t*3.2)*2 : 0;
+  const cx2 = sx + bw/2;
+  const by = boss.y + bobY;
 
-  // Hit flash — red transparent glow over struck zone
-  if (boss.hitFlash > 0) {
-    const flashAlpha = (boss.hitFlash / 0.18) * 0.55;
-    const zone = boss.hitFlashZone;
-    let zy = boss.y, zh = boss.h;
-    if (zone === 'head')  { zy = boss.y;                   zh = boss.h * 0.35; }
-    if (zone === 'body')  { zy = boss.y + boss.h * 0.33;   zh = boss.h * 0.35; }
-    if (zone === 'legs')  { zy = boss.y + boss.h * 0.65;   zh = boss.h * 0.35; }
-    ctx.shadowColor = '#ff2200';
-    ctx.shadowBlur = 18;
-    ctx.fillStyle = `rgba(255,30,0,${flashAlpha})`;
-    ctx.fillRect(sx, zy, boss.w, zh);
-    ctx.shadowBlur = 0;
+  const isFlash = boss.hitFlash > 0;
+  const baseR = Math.round(235 + boss.redTint*20);
+  const baseG = Math.round(235 - boss.redTint*80);
+  const baseB = Math.round(235 - boss.redTint*80);
+  const baseCol = isFlash ? '#ffffff' : `rgb(${baseR},${baseG},${baseB})`;
+  const glowCol = boss.redTint > 0.5 ? '#ff4422' : '#aaddff';
+
+  ctx.shadowColor = glowCol;
+  ctx.shadowBlur = 22 + 8*Math.sin(t*2.4);
+
+  // Legs
+  const legW = bw*0.28, legH = bh*0.22, legTop = by + bh*0.78;
+  for (let side = -1; side <= 1; side += 2) {
+    const lx = cx2 + side*bw*0.17 - legW/2;
+    ctx.fillStyle = baseCol; rrect(ctx, lx, legTop, legW, legH, legW*0.35); ctx.fill();
+    ctx.fillStyle = 'rgba(0,0,0,0.12)'; ctx.fillRect(lx+2, legTop+legH*0.45, legW-4, legH*0.1);
   }
 
-  // HP pips (3 per zone, drawn outside boss body)
-  const zones = [
-    { hits: boss.headHits, hp: boss.headHP, y: boss.y + boss.h*0.18,  defeated: boss.headHits >= boss.headHP },
-    { hits: boss.bodyHits, hp: boss.bodyHP, y: boss.y + boss.h*0.52,  defeated: boss.bodyHits >= boss.bodyHP },
-    { hits: boss.legHits,  hp: boss.legHP,  y: boss.y + boss.h*0.82,  defeated: boss.legless },
+  // Body
+  const bodyW = bw*0.78*ps, bodyH = bh*0.44*ps;
+  const bodyTop = by + bh*0.36;
+  ctx.fillStyle = baseCol; rrect(ctx, cx2-bodyW/2, bodyTop, bodyW, bodyH, bodyW*0.28); ctx.fill();
+  ctx.shadowBlur = 0;
+  ctx.fillStyle = 'rgba(0,0,0,0.09)';
+  for (let i = 1; i < 4; i++) {
+    const fy = bodyTop + bodyH*(i/4);
+    const fw2 = bodyW*(0.85 - 0.1*Math.abs(i-2));
+    ctx.fillRect(cx2-fw2/2, fy-1.5, fw2, 3);
+  }
+  ctx.shadowColor = glowCol; ctx.shadowBlur = 22 + 8*Math.sin(t*2.4);
+
+  // Arms
+  const armW = bw*0.22, armH = bh*0.18, armY = bodyTop + bodyH*0.28;
+  const wag = boss.phase === 'dance' ? Math.sin(boss.danceT*12)*12 : Math.sin(t*2.6)*4;
+  for (let side = -1; side <= 1; side += 2) {
+    ctx.save();
+    ctx.translate(cx2 + side*(bodyW/2 + armW*0.1), armY + armH/2);
+    ctx.rotate(side*(0.18 + wag*0.04));
+    ctx.fillStyle = baseCol; rrect(ctx, -armW/2, -armH/2, armW, armH, armW*0.4); ctx.fill();
+    ctx.restore();
+  }
+
+  // Collar
+  ctx.shadowBlur = 6; ctx.shadowColor = '#2244cc';
+  ctx.fillStyle = isFlash ? '#aabbff' : '#3355cc';
+  rrect(ctx, cx2-bw*0.32, by+bh*0.33, bw*0.64, bh*0.055, bh*0.022); ctx.fill();
+  ctx.shadowColor = glowCol; ctx.shadowBlur = 22 + 8*Math.sin(t*2.4);
+
+  // Head
+  const danceHR = boss.phase === 'dance' ? 1 + 0.06*Math.abs(Math.sin(boss.danceT*8)) : 1;
+  const headR = bw*0.32*danceHR;
+  const headCy = by + bh*0.22;
+  ctx.fillStyle = baseCol;
+  ctx.beginPath(); ctx.arc(cx2, headCy, headR, 0, Math.PI*2); ctx.fill();
+
+  // Hat
+  ctx.shadowBlur = 4;
+  ctx.fillStyle = isFlash ? '#ccddff' : '#334499';
+  const brimW = bw*0.62;
+  rrect(ctx, cx2-brimW/2, by+bh*0.01, brimW, bh*0.038, 3); ctx.fill();
+  const hatW = bw*0.3;
+  rrect(ctx, cx2-hatW/2, by-bh*0.05, hatW, bh*0.07, 3); ctx.fill();
+  ctx.shadowColor = glowCol; ctx.shadowBlur = 22 + 8*Math.sin(t*2.4);
+
+  // Eyes
+  ctx.shadowBlur = 0; ctx.fillStyle = '#111';
+  const eyeOff = headR*0.42;
+  ctx.beginPath(); ctx.ellipse(cx2-eyeOff, headCy-headR*0.08, headR*0.13, headR*0.16, 0, 0, Math.PI*2); ctx.fill();
+  ctx.beginPath(); ctx.ellipse(cx2+eyeOff, headCy-headR*0.08, headR*0.13, headR*0.16, 0, 0, Math.PI*2); ctx.fill();
+  ctx.strokeStyle = '#444'; ctx.lineWidth = 2;
+  ctx.beginPath(); ctx.arc(cx2, headCy+headR*0.12, headR*0.38, 0.2, Math.PI-0.2); ctx.stroke();
+
+  // Orbiting sparkles
+  for (let i = 0; i < 7; i++) {
+    const ang = (i/7)*Math.PI*2 + t*1.6;
+    const rad = bw*0.56 + bw*0.08*Math.sin(t*3.1+i);
+    const midY = by + bh*0.5;
+    const al = 0.4 + 0.6*Math.abs(Math.sin(t*5+i*1.3));
+    ctx.globalAlpha = al;
+    ctx.fillStyle = '#aaeeff'; ctx.shadowColor = '#22ccff'; ctx.shadowBlur = 8;
+    ctx.beginPath(); ctx.arc(cx2+Math.cos(ang)*rad, midY+Math.sin(ang)*rad*0.55, 2.2, 0, Math.PI*2); ctx.fill();
+  }
+  ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+
+  // Hit flash
+  if (isFlash) {
+    const fa = (boss.hitFlash/0.18)*0.4;
+    ctx.fillStyle = `rgba(180,230,255,${fa})`;
+    ctx.beginPath(); ctx.ellipse(cx2, by+bh*0.5, bw*0.55, bh*0.52, 0, 0, Math.PI*2); ctx.fill();
+  }
+
+  // HP pips
+  const pipZones = [
+    { hits:boss.headHits, hp:boss.headHP, y:by+bh*0.18, d:boss.headHits>=boss.headHP },
+    { hits:boss.bodyHits, hp:boss.bodyHP, y:by+bh*0.52, d:boss.bodyHits>=boss.bodyHP },
+    { hits:boss.legHits,  hp:boss.legHP,  y:by+bh*0.85, d:boss.legHits>=boss.legHP },
   ];
-  for (const z of zones) {
+  for (const z of pipZones) {
     for (let i = 0; i < z.hp; i++) {
-      const px = sx + boss.w + 8 + i * 9;
-      const hit = i < z.hits;
-      ctx.beginPath();
-      ctx.arc(px, z.y, 3, 0, Math.PI*2);
-      ctx.fillStyle = z.defeated ? 'rgba(255,255,255,0.15)' : hit ? 'rgba(255,60,60,0.9)' : 'rgba(255,255,255,0.7)';
+      const px2 = sx + boss.w + 10 + i*9;
+      ctx.beginPath(); ctx.arc(px2, z.y, 3, 0, Math.PI*2);
+      ctx.fillStyle = z.d ? 'rgba(255,255,255,0.15)' : i < z.hits ? 'rgba(100,200,255,0.9)' : 'rgba(255,255,255,0.7)';
       ctx.fill();
     }
   }
@@ -2842,6 +2960,19 @@ function adjustColor(hex, amount) {
     const nb = clamp(Math.round(b*(1+amount)), 0, 255);
     return `rgb(${nr},${ng},${nb})`;
   } catch(e) { return hex; }
+}
+function rrect(ctx, x, y, w, h, r) {
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.lineTo(x + w - r, y);
+  ctx.arcTo(x + w, y, x + w, y + r, r);
+  ctx.lineTo(x + w, y + h - r);
+  ctx.arcTo(x + w, y + h, x + w - r, y + h, r);
+  ctx.lineTo(x + r, y + h);
+  ctx.arcTo(x, y + h, x, y + h - r, r);
+  ctx.lineTo(x, y + r);
+  ctx.arcTo(x, y, x + r, y, r);
+  ctx.closePath();
 }
 
 // ── Timer display ─────────────────────────────
