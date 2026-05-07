@@ -3180,22 +3180,16 @@ function renderDimensionalRoom() {
 
   const dr = GS.dimRoom;
 
-  // DEBUG bar — shows live state (temporary)
+  // DEBUG bar
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillRect(0, 0, W, 32);
+  ctx.fillRect(0, 0, W, 28);
   ctx.fillStyle = '#ffff00';
   ctx.font = '11px monospace';
   ctx.textAlign = 'left';
   const p2 = GS.player;
-  ctx.fillText(
-    `ph:${dr.phase} w:${dr.wave}/${dr.totalWaves} e:${dr.enemies.length} pend:${dr.waveClearPending?1:0} exitT:${(dr.exitTimer||0).toFixed(1)} door:${dr.exitDoors[0]?(dr.exitDoors[0].activeIn||0).toFixed(1):'no'}`,
-    6, 13
-  );
-  ctx.fillText(
-    `px:${Math.round(p2.x)} py:${Math.round(p2.y)} hp:${Math.round(p2.hp)} hearts:${p2.hearts} delay:${(dr.waveDelay||0).toFixed(2)}`,
-    6, 26
-  );
+  ctx.fillText(`${dr.phase} w${dr.wave} e${dr.enemies.length} xT${(dr.exitTimer||0).toFixed(0)} d${(dr.exitDoors[0]?.activeIn||0).toFixed(1)}`, 4, 12);
+  ctx.fillText(`hp${Math.round(p2.hp)} hrt${p2.hearts} dly${(dr.waveDelay||0).toFixed(1)} pnd${dr.waveClearPending?1:0}`, 4, 25);
   ctx.restore();
 
   // Wave counter (hidden during assembly)
