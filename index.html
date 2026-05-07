@@ -3183,13 +3183,17 @@ function renderDimensionalRoom() {
   // DEBUG bar
   ctx.save();
   ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillRect(0, 0, W, 28);
+  ctx.fillRect(0, 0, W, GS._err ? 44 : 28);
   ctx.fillStyle = '#ffff00';
   ctx.font = '11px monospace';
   ctx.textAlign = 'left';
   const p2 = GS.player;
   ctx.fillText(`${dr.phase} w${dr.wave} e${dr.enemies.length} xT${(dr.exitTimer||0).toFixed(0)} d${(dr.exitDoors[0]?.activeIn||0).toFixed(1)}`, 4, 12);
   ctx.fillText(`hp${Math.round(p2.hp)} hrt${p2.hearts} dly${(dr.waveDelay||0).toFixed(1)} pnd${dr.waveClearPending?1:0}`, 4, 25);
+  if (GS._err) {
+    ctx.fillStyle = '#ff4444';
+    ctx.fillText(GS._err, 4, 40);
+  }
   ctx.restore();
 
   // Wave counter (hidden during assembly)
@@ -3347,8 +3351,12 @@ function gameLoop(timestamp) {
   const dt = Math.min(raw, 100) / 1000;
   accumulator += raw;
 
-  update(dt);
-  render();
+  try {
+    update(dt);
+    render();
+  } catch(e) {
+    GS._err = String(e).slice(0, 80);
+  }
   clearJust();
   requestAnimationFrame(gameLoop);
 }
