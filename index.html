@@ -2105,6 +2105,7 @@ function enterDimensionalRoom() {
   dr.enemies = [];
   dr.phase = 'wave';
   dr.waveDelay = 0;
+  dr.waveClearPending = false;
   dr.exitTimer = 0;
   dr.exitDoors = [];
   dr.drops = null;
@@ -2116,6 +2117,7 @@ function enterDimensionalRoom() {
 function spawnDimWave() {
   const dr = GS.dimRoom;
   dr.enemies = [];
+  dr.waveClearPending = true;
   const pal = GS.world.palette;
   const cx = canvas.width/2, cy = canvas.height/2;
 
@@ -2151,7 +2153,7 @@ function updateDimensionalRoom(dt) {
   const dr = GS.dimRoom;
   const p = GS.player;
 
-  if (dr.phase === 'exit') {
+  if (dr.phase === 'exit' || dr.phase === 'creeperfade') {
     dr.exitTimer = (dr.exitTimer || 0) + dt;
 
     // Physical drop collection
@@ -2179,26 +2181,11 @@ function updateDimensionalRoom(dt) {
     return;
   }
 
+  // creeperfade: tick alpha only; door/drop interaction handled in the block above
   if (dr.phase === 'creeperfade') {
     dr.creeperTimer += dt;
     dr.creeperAlpha = Math.min(1, dr.creeperAlpha + dt * 0.55);
-    // transition to exit once fully faded in (or safety after 8s)
-    if (dr.creeperAlpha >= 1 || dr.creeperTimer > 8) {
-      const W = canvas.width, H = canvas.height;
-      const floorY = H - 80 - 26;
-      const gunTypes = ['scatter','railgun','homing_spread'];
-      const bonusType = Math.random() < 0.5 ? 'heart' : 'invincibility';
-      dr.drops = [
-        {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
-        {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
-      ];
-      dr.exitDoors = [{x:W/2-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0}];
-      dr.exitTimer = 0;
-      dr.phase = 'exit';
-      GS.announceText = 'TAKE WHAT YOU WANT';
-      GS.announceAlpha = 2.2;
-    }
-    return;
+    if (dr.creeperAlpha >= 1) dr.phase = 'exit';
   }
 
   // Inter-wave delay (replaces setTimeout — fully synchronous)
@@ -2228,17 +2215,29 @@ function updateDimensionalRoom(dt) {
     }
   }
 
-  const prevEnemyCount = dr.enemies.length;
   dr.enemies = dr.enemies.filter(e => e.alive);
 
-  if (prevEnemyCount > 0 && dr.enemies.length === 0) {
+  // waveClearPending is set by spawnDimWave — true means enemies were active this wave
+  if (dr.waveClearPending && dr.enemies.length === 0) {
+    dr.waveClearPending = false;
     dr.wave++;
     if (dr.wave >= dr.totalWaves) {
-      dr.phase = 'creeperfade';
+      // All waves done — spawn drops + door immediately, start creeper fade
+      const W = canvas.width, H = canvas.height;
+      const floorY = H - 80 - 26;
+      const gunTypes = ['scatter','railgun','homing_spread'];
+      const bonusType = Math.random() < 0.5 ? 'heart' : 'invincibility';
+      dr.drops = [
+        {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
+        {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
+      ];
+      dr.exitDoors = [{x:W/2-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0}];
+      dr.exitTimer = 0;
       dr.creeperAlpha = 0;
       dr.creeperTimer = 0;
-      GS.announceText = '???';
-      GS.announceAlpha = 2.0;
+      dr.phase = 'creeperfade'; // creeper fades in visually while door is already live
+      GS.announceText = 'TAKE WHAT YOU WANT';
+      GS.announceAlpha = 2.2;
     } else {
       const nextLabel = ['HEADS','TORSOS','LEGS'][dr.wave] || '';
       if (nextLabel) { GS.announceText = nextLabel; GS.announceAlpha = 1.5; }
