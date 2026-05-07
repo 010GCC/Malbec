@@ -887,13 +887,11 @@ function resetGame() {
       wave: 0,
       totalWaves: 3,
       enemies: [],
-      spawnTimer: 0,
-      phase: 'wave', // wave | assemble | exit
-      previewTimer: 0,
-      flashTimer: 0,
-      flashCount: 0,
+      phase: 'wave',
       exitDoors: [],
-      assemble: null,
+      drops: null,
+      creeperAlpha: 0,
+      creeperTimer: 0,
     },
     // Transition
     transitionAlpha: 0,
@@ -2132,13 +2130,14 @@ function spawnDimWave() {
   for (let i=0; i<types.length; i++) {
     const type = types[i];
     const angle = (i/types.length) * Math.PI*2;
+    const ew = type==='torso'?52:28, eh = type==='torso'?40:28;
     dr.enemies.push({
       type,
-      x: cx + Math.cos(angle)*rand(150,260),
-      y: cy + Math.sin(angle)*rand(150,260),
+      x: clamp(cx + Math.cos(angle)*rand(150,220), 50, canvas.width-50-ew),
+      y: clamp(cy + Math.sin(angle)*rand(80,180), 70, canvas.height-100-eh),
       vx: 0, vy: 0,
-      w: type==='torso'?52:28,
-      h: type==='torso'?40:28,
+      w: ew,
+      h: eh,
       hp: type==='torso'?4:2,
       hitFlash: 0,
       alive: true,
@@ -3174,9 +3173,9 @@ function renderDimensionalRoom() {
     ctx.fillText(`WAVE ${dr.wave+1}/${dr.totalWaves}`, 32, 80);
   }
 
-  // Enemies
+  // Enemies (skip dead — bullets kill during updateBullets which runs after the filter)
   for (const e of dr.enemies) {
-    renderEnemy(e);
+    if (e.alive) renderEnemy(e);
   }
 
   // Exit doors (phase=exit)
