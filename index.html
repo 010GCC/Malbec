@@ -2230,9 +2230,7 @@ function updateDimensionalRoom(dt) {
     e.x = clamp(e.x, 40, canvas.width-40-e.w);
     e.y = clamp(e.y, 60, canvas.height-80-e.h);
 
-    if (rectsOverlap({x:e.x,y:e.y,w:e.w,h:e.h},{x:p.x+2,y:p.y,w:p.w-4,h:p.h}) && !p.isEvading) {
-      takeDamage(ENEMY_CONTACT_DMG);
-    }
+    // no contact damage in dim room — shoot to kill
   }
 
   dr.enemies = dr.enemies.filter(e => e.alive);
@@ -3184,14 +3182,19 @@ function renderDimensionalRoom() {
 
   // DEBUG bar — shows live state (temporary)
   ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.75)';
-  ctx.fillRect(0, 0, W, 24);
+  ctx.fillStyle = 'rgba(0,0,0,0.85)';
+  ctx.fillRect(0, 0, W, 32);
   ctx.fillStyle = '#ffff00';
-  ctx.font = '12px monospace';
+  ctx.font = '11px monospace';
   ctx.textAlign = 'left';
+  const p2 = GS.player;
   ctx.fillText(
-    `phase:${dr.phase}  wave:${dr.wave}/${dr.totalWaves}  enemies:${dr.enemies.length}  delay:${(dr.waveDelay||0).toFixed(2)}  exitT:${(dr.exitTimer||0).toFixed(1)}`,
-    6, 16
+    `ph:${dr.phase} w:${dr.wave}/${dr.totalWaves} e:${dr.enemies.length} pend:${dr.waveClearPending?1:0} exitT:${(dr.exitTimer||0).toFixed(1)} door:${dr.exitDoors[0]?(dr.exitDoors[0].activeIn||0).toFixed(1):'no'}`,
+    6, 13
+  );
+  ctx.fillText(
+    `px:${Math.round(p2.x)} py:${Math.round(p2.y)} hp:${Math.round(p2.hp)} hearts:${p2.hearts} delay:${(dr.waveDelay||0).toFixed(2)}`,
+    6, 26
   );
   ctx.restore();
 
