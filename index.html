@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.9.0';
+const VERSION = '1.10.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -676,6 +676,113 @@ function buildPlayerSprite() {
     d[p+3] = 255;
   }
   cx.putImageData(img, 0, 0);
+  return oc;
+}
+
+function buildDragonSprite() {
+  const W = 80, H = 100;
+  const oc = document.createElement('canvas');
+  oc.width = W; oc.height = H;
+  const c = oc.getContext('2d');
+  c.imageSmoothingEnabled = false;
+
+  const OUT='#0d0d1a', BD1='#1a1a2c', BD2='#252540', BD3='#363658', BD4='#4a4a72', BD5='#60608a';
+  const YDK='#aa7700', YLW='#ffcc00', YBR='#ffee66';
+  const PDK='#aa1155', PNK='#ff3399', PLT='#ff88cc';
+  const WHT='#ffffff', BLK='#000010';
+
+  function path(col, fn, stroke=true) {
+    c.fillStyle = col; fn(); c.fill();
+    if (stroke) { c.strokeStyle = OUT; c.lineWidth = 1.5; fn(); c.stroke(); }
+  }
+
+  // wings (behind body, drawn first)
+  path(BD1, () => {
+    c.beginPath();
+    c.moveTo(35,30); c.bezierCurveTo(16,8,2,2,5,20);
+    c.bezierCurveTo(7,32,22,38,30,40); c.closePath();
+  });
+  path(BD1, () => {
+    c.beginPath();
+    c.moveTo(50,28); c.bezierCurveTo(66,6,80,2,77,20);
+    c.bezierCurveTo(74,32,62,38,56,40); c.closePath();
+  });
+  // wing veins (pink)
+  c.strokeStyle=PDK; c.lineWidth=0.9;
+  [[35,30,7,8],[34,34,5,22],[50,28,72,8],[51,33,75,22]].forEach(([x1,y1,x2,y2])=>{
+    c.beginPath(); c.moveTo(x1,y1); c.lineTo(x2,y2); c.stroke();
+  });
+
+  // body
+  path(BD3, () => { c.beginPath(); c.ellipse(48,60,22,30,0,0,Math.PI*2); });
+  // belly highlight
+  c.fillStyle=BD4; c.beginPath(); c.ellipse(50,62,13,20,0.15,0,Math.PI*2); c.fill();
+
+  // dorsal spines (pink)
+  c.fillStyle=PNK;
+  [[38,30],[34,39],[30,47],[26,54]].forEach(([sx,sy])=>{
+    c.beginPath(); c.moveTo(sx,sy-8); c.lineTo(sx-5,sy+2); c.lineTo(sx+3,sy+2); c.closePath(); c.fill();
+  });
+
+  // neck
+  path(BD3, () => {
+    c.beginPath();
+    c.moveTo(32,46); c.bezierCurveTo(20,44,14,36,18,28);
+    c.bezierCurveTo(22,22,32,26,36,36);
+    c.bezierCurveTo(36,40,34,44,32,46); c.closePath();
+  });
+
+  // head (facing left)
+  path(BD3, () => { c.beginPath(); c.ellipse(16,26,16,12,0.25,0,Math.PI*2); });
+  c.fillStyle=BD4; c.beginPath(); c.ellipse(14,24,9,7,0.25,0,Math.PI*2); c.fill();
+
+  // snout
+  path(BD2, () => {
+    c.beginPath();
+    c.moveTo(3,22); c.lineTo(1,28); c.lineTo(5,34);
+    c.lineTo(16,32); c.lineTo(18,26); c.closePath();
+  });
+  // mouth slit
+  c.strokeStyle=OUT; c.lineWidth=1;
+  c.beginPath(); c.moveTo(1,28); c.lineTo(16,28); c.stroke();
+  // nostril
+  c.fillStyle=OUT; c.beginPath(); c.arc(5,24,1.3,0,Math.PI*2); c.fill();
+
+  // horns
+  [[[20,14],[15,3],[25,13]],[[27,13],[24,2],[31,12]]].forEach(pts=>{
+    c.fillStyle=YDK;
+    c.beginPath(); c.moveTo(...pts[0]); c.lineTo(...pts[1]); c.lineTo(...pts[2]); c.closePath(); c.fill();
+    c.fillStyle=YLW;
+    c.beginPath(); c.moveTo(pts[0][0],pts[0][1]); c.lineTo(pts[1][0]+2,pts[1][1]+2); c.lineTo(pts[2][0]-1,pts[2][1]); c.closePath(); c.fill();
+  });
+
+  // eye
+  c.fillStyle=YLW; c.beginPath(); c.ellipse(18,22,4,3,0,0,Math.PI*2); c.fill();
+  c.strokeStyle=OUT; c.lineWidth=1; c.beginPath(); c.ellipse(18,22,4,3,0,0,Math.PI*2); c.stroke();
+  c.fillStyle=BLK; c.beginPath(); c.ellipse(18,22,1.4,2.8,0,0,Math.PI*2); c.fill();
+  c.fillStyle=WHT; c.beginPath(); c.arc(19.5,20.5,1,0,Math.PI*2); c.fill();
+
+  // tail
+  path(BD2, () => {
+    c.beginPath();
+    c.moveTo(66,78); c.bezierCurveTo(74,84,76,92,70,97);
+    c.bezierCurveTo(64,101,58,97,60,90);
+    c.bezierCurveTo(55,93,52,86,58,80);
+    c.bezierCurveTo(61,77,63,76,66,78); c.closePath();
+  });
+  // tail spike (pink)
+  c.fillStyle=PNK;
+  c.beginPath(); c.moveTo(70,98); c.lineTo(75,101); c.lineTo(65,100); c.closePath(); c.fill();
+
+  // claws
+  [[[33,72],[29,80],[27,84],[33,82],[36,86],[39,82],[37,76]],
+   [[58,76],[54,84],[52,88],[57,86],[61,90],[63,86],[61,80]]].forEach(pts=>{
+    c.fillStyle=BD4; c.beginPath();
+    pts.forEach((p,i)=>i===0?c.moveTo(...p):c.lineTo(...p));
+    c.closePath(); c.fill();
+    c.strokeStyle=OUT; c.lineWidth=1; c.stroke();
+  });
+
   return oc;
 }
 
@@ -1424,7 +1531,7 @@ function updateBullets(dt) {
     }
 
     // Dimensional room boss hit
-    if (b.alive && GS.state === 'dimensional' && GS.dimRoom.dimBoss?.phase === 'idle') {
+    if (b.alive && GS.state === 'dimensional' && ['idle','fire'].includes(GS.dimRoom.dimBoss?.phase)) {
       const db = GS.dimRoom.dimBoss;
       if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:db.x,y:db.y,w:db.w,h:db.h})) {
         db.hp--;
@@ -2128,6 +2235,20 @@ function updateDimensionalRoom(dt) {
 
   if (dr.phase === 'exit') {
     dr.exitTimer = (dr.exitTimer || 0) + dt;
+
+    // powerup drop collection
+    if (dr.dimPowerup && dr.dimPowerup.alive) {
+      dr.dimPowerup.bobT += dt;
+      if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:dr.dimPowerup.x,y:dr.dimPowerup.y,w:dr.dimPowerup.w,h:dr.dimPowerup.h})) {
+        const def = GUN_DEFS[dr.dimPowerup.type];
+        GS.player.gun = { type: dr.dimPowerup.type, ammo: def.ammo };
+        dr.dimPowerup.alive = false;
+        GS.announceText = def.label;
+        GS.announceAlpha = 1.8;
+        spawnParticles(p.x+p.w/2, p.y, 18, {color:def.color,speedMin:80,speedMax:300,lifeMin:0.2,lifeMax:0.55,sizeMin:3,sizeMax:7});
+      }
+    }
+
     // Check door interaction
     for (const door of dr.exitDoors) {
       if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:door.x,y:door.y,w:door.w,h:door.h})) {
@@ -2179,18 +2300,22 @@ function updateDimensionalRoom(dt) {
       // All waves cleared — dim boss appears
       dr.phase = 'dimboss';
       const W = canvas.width, H = canvas.height;
+      const dh = Math.floor(H * 0.25);
+      const dw = Math.floor(dh * 0.8);
       dr.dimBoss = {
-        x: W/2 - 44, y: -160,
-        w: 88, h: 150,
+        x: W/2 - dw/2, y: -dh - 20,
+        w: dw, h: dh,
         hp: 4,
-        t: 0, puffScale: 1, puffVel: 0,
+        t: 0,
         hitFlash: 0, redTint: 0,
         vx: 0, vy: 0,
         phase: 'enter', phaseTimer: 0,
         fleeTimer: 0,
         fleeDir: Math.random() < 0.5 ? 1 : -1,
-        onGround: false,
+        fireTimer: 0, fireCount: 0,
       };
+      dr.dimBossProjectiles = [];
+      dr.dimPowerup = null;
       GS.announceText = '???';
       GS.announceAlpha = 2.0;
     } else {
@@ -2204,35 +2329,80 @@ function updateDimensionalRoom(dt) {
 function updateDimBoss(dt) {
   const dr = GS.dimRoom;
   const db = dr.dimBoss;
+  const p = GS.player;
   const W = canvas.width, H = canvas.height;
 
   db.t += dt;
   db.phaseTimer += dt;
   if (db.hitFlash > 0) db.hitFlash -= dt;
   db.redTint = Math.max(0, db.redTint - dt * 1.8);
-  db.puffVel += (1 - db.puffScale) * 38 * dt - db.puffVel * 7 * dt;
-  db.puffScale += db.puffVel * dt;
-  db.puffScale = clamp(db.puffScale, 0.7, 1.5);
+
+  // dim boss projectile update + player collision
+  if (dr.dimBossProjectiles) {
+    for (const proj of dr.dimBossProjectiles) {
+      if (!proj.alive) continue;
+      proj.x += proj.vx * dt;
+      proj.y += proj.vy * dt;
+      proj.life -= dt;
+      if (proj.life <= 0 || proj.x < -20 || proj.x > W+20 || proj.y < -20 || proj.y > H+20) {
+        proj.alive = false; continue;
+      }
+      if (!p.isEvading && rectsOverlap({x:proj.x-proj.r,y:proj.y-proj.r,w:proj.r*2,h:proj.r*2},{x:p.x,y:p.y,w:p.w,h:p.h})) {
+        takeDamage(ENEMY_CONTACT_DMG);
+        spawnParticles(proj.x,proj.y,6,{color:'#ffcc00',speedMin:60,speedMax:200,lifeMin:0.15,lifeMax:0.4,sizeMin:2,sizeMax:5});
+        proj.alive = false;
+      }
+    }
+    dr.dimBossProjectiles = dr.dimBossProjectiles.filter(pr=>pr.alive);
+  }
 
   if (db.phase === 'enter') {
-    const targetY = H/2 - db.h/2;
-    db.y = lerp(db.y, targetY, 0.08);
-    if (Math.abs(db.y - targetY) < 5 || db.phaseTimer > 2.5) {
+    const targetY = H * 0.18;
+    db.y = lerp(db.y, targetY, 0.07);
+    if (Math.abs(db.y - targetY) < 4 || db.phaseTimer > 2.5) {
       db.y = targetY;
+      db.phase = 'fire';
+      db.phaseTimer = 0;
+      db.fireTimer = 0.6; // first shot after short delay
+      db.fireCount = 0;
+    }
+  } else if (db.phase === 'fire') {
+    // hover gently
+    db.x = W/2 - db.w/2 + Math.sin(db.t * 1.1) * 28;
+    db.fireTimer -= dt;
+    if (db.fireTimer <= 0 && db.fireCount < 3) {
+      db.fireCount++;
+      db.fireTimer = 0.65;
+      // fire toward player
+      const cx = db.x + db.w * 0.15, cy = db.y + db.h * 0.35;
+      const dx = (p.x + p.w/2) - cx, dy = (p.y + p.h/2) - cy;
+      const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+      const spd = 200 + db.fireCount * 20;
+      dr.dimBossProjectiles.push({x:cx, y:cy, vx:dx/dist*spd, vy:dy/dist*spd, life:3.5, alive:true, r:8});
+      db.hitFlash = 0.1;
+    }
+    if (db.fireCount >= 3 && db.fireTimer <= 0) {
       db.phase = 'idle';
       db.phaseTimer = 0;
-      db.puffScale = 1.22; db.puffVel = -4;
       GS.announceText = 'SHOOT HIM';
-      GS.announceAlpha = 2.2;
+      GS.announceAlpha = 2.0;
     }
   } else if (db.phase === 'idle') {
-    db.x = W/2 - db.w/2 + Math.sin(db.t * 1.4) * 42;
-    db.y = H/2 - db.h/2 + Math.sin(db.t * 0.9) * 20;
+    db.x = W/2 - db.w/2 + Math.sin(db.t * 1.4) * 38;
+    db.y = H * 0.18 + Math.sin(db.t * 0.85) * 18;
   } else if (db.phase === 'flee') {
     db.fleeTimer += dt;
-    db.x += db.fleeDir * 700 * dt;
-    db.y += -200 * dt;
-    if (db.x > W + 120 || db.x + db.w < -120 || db.fleeTimer > 2.5) {
+    db.x += db.fleeDir * 720 * dt;
+    db.y -= 180 * dt;
+    if (db.x > W + 140 || db.x + db.w < -140 || db.fleeTimer > 2.5) {
+      // spawn powerup drop before showing exit doors
+      if (!dr.dimPowerup) {
+        const gunPool = ['scatter','railgun','homing_spread'];
+        const type = pick(gunPool);
+        dr.dimPowerup = { x: W/2-13, y: H-160, w:26, h:20, type, alive:true, bobT:0 };
+        GS.announceText = 'POWER DROP';
+        GS.announceAlpha = 1.8;
+      }
       dr.phase = 'exit';
     }
   }
@@ -3196,26 +3366,76 @@ function renderDimensionalRoom() {
     }
   }
 
-  // Dim boss (Stay Puft)
+  // Dim boss — dragon sprite
   if (dr.phase === 'dimboss' && dr.dimBoss) {
     const db = dr.dimBoss;
-    if (db.phase === 'flee') ctx.globalAlpha = Math.max(0, 1 - db.fleeTimer * 1.6);
-    const _saved = GS.boss;
-    GS.boss = {
-      x: db.x + GS.cameraX, y: db.y, w: db.w, h: db.h,
-      t: db.t, puffScale: db.puffScale, puffVel: 0,
-      hitFlash: db.hitFlash, hitFlashZone: null,
-      redTint: db.redTint,
-      onGround: db.phase === 'idle',
-      phase: 'approach', danceT: 0,
-      orbs: [],
-      headHits: 0, bodyHits: 0, legHits: 0,
-      headHP: 0, bodyHP: 0, legHP: 0,
-      dead: false, dying: false,
-    };
-    renderBoss();
-    GS.boss = _saved;
-    ctx.globalAlpha = 1;
+    if (!GS._dragonSprite) GS._dragonSprite = buildDragonSprite();
+
+    ctx.save();
+    if (db.phase === 'flee') ctx.globalAlpha = Math.max(0, 1 - db.fleeTimer * 1.8);
+
+    // yellow glow
+    ctx.shadowColor = '#ffcc00';
+    ctx.shadowBlur = 18 + Math.sin(db.t * 2.1) * 7;
+    ctx.drawImage(GS._dragonSprite, db.x, db.y, db.w, db.h);
+    ctx.shadowBlur = 0;
+
+    // hit flash (red tint overlay)
+    if (db.hitFlash > 0 && db.redTint > 0) {
+      ctx.globalAlpha *= db.redTint * 0.65;
+      ctx.fillStyle = '#ff2200';
+      ctx.fillRect(db.x, db.y, db.w, db.h);
+    }
+    ctx.restore();
+
+    // HP pips above dragon (during fire/idle)
+    if (db.phase === 'idle' || db.phase === 'fire') {
+      const pipX = db.x + db.w/2 - db.hp * 7, pipY = db.y - 14;
+      for (let i = 0; i < 4; i++) {
+        ctx.fillStyle = i < db.hp ? '#ffcc00' : '#333350';
+        ctx.strokeStyle = '#0d0d1a'; ctx.lineWidth = 1;
+        ctx.beginPath(); ctx.arc(pipX + i*14, pipY, 5, 0, Math.PI*2);
+        ctx.fill(); ctx.stroke();
+      }
+    }
+  }
+
+  // Dim boss projectiles
+  if (dr.dimBossProjectiles) {
+    for (const proj of dr.dimBossProjectiles) {
+      if (!proj.alive) continue;
+      ctx.save();
+      ctx.shadowColor = '#ff8800'; ctx.shadowBlur = 14;
+      ctx.fillStyle = '#ffcc00';
+      ctx.beginPath(); ctx.arc(proj.x, proj.y, proj.r, 0, Math.PI*2); ctx.fill();
+      ctx.fillStyle = '#ffffff44';
+      ctx.beginPath(); ctx.arc(proj.x - proj.r*0.3, proj.y - proj.r*0.3, proj.r*0.35, 0, Math.PI*2); ctx.fill();
+      ctx.restore();
+    }
+  }
+
+  // Powerup drop
+  if (dr.dimPowerup && dr.dimPowerup.alive) {
+    const pu = dr.dimPowerup;
+    const bob = Math.sin(pu.bobT * 3.5) * 5;
+    const def = GUN_DEFS[pu.type];
+    ctx.save();
+    ctx.shadowColor = def.color; ctx.shadowBlur = 16 + Math.sin(pu.bobT*4)*6;
+    ctx.strokeStyle = def.color; ctx.lineWidth = 2;
+    ctx.strokeRect(pu.x, pu.y + bob, pu.w, pu.h);
+    ctx.fillStyle = def.color + '30';
+    ctx.fillRect(pu.x, pu.y + bob, pu.w, pu.h);
+    ctx.fillStyle = def.color;
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.shadowBlur = 0;
+    ctx.fillText(def.label, pu.x + pu.w/2, pu.y + bob + pu.h/2 + 3);
+    ctx.restore();
+    // prompt
+    ctx.fillStyle = 'rgba(255,255,255,0.55)';
+    ctx.font = '9px Share Tech Mono, monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('WALK OVER', pu.x + pu.w/2, pu.y + bob + pu.h + 14);
   }
 }
 

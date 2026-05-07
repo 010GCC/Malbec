@@ -15,7 +15,7 @@ const VERSION = '1.5.0';
 | Fix, balance tweak, small addition | spike damage, remove gun | PATCH (1.5.0 → 1.5.1) |
 | Complete overhaul / milestone | public release | MAJOR (1.x → 2.0) |
 
-### Current version: `1.9.0`
+### Current version: `1.10.0`
 Reconstructed history:
 - 1.0 — initial upload
 - 1.1 — boss cinematic, heart prestige, door fix, world transition
