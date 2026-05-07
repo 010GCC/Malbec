@@ -2186,16 +2186,18 @@ function updateDimensionalRoom(dt) {
       }
     }
 
-    // Door interaction — walk into it to exit (no button press needed)
+    // Door interaction — walk into it after activation delay
     for (const door of dr.exitDoors) {
+      door.activeIn = Math.max(0, (door.activeIn || 0) - dt);
+      if (door.activeIn > 0) continue; // not active yet
       if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:door.x,y:door.y,w:door.w,h:door.h})) {
         door._t = (door._t || 0) + dt;
-        if (door._t > 0.25) { exitDimensionalRoom(); return; }
+        if (door._t > 0.4) { exitDimensionalRoom(); return; }
       } else {
         door._t = 0;
       }
     }
-    if (dr.exitTimer > 10) exitDimensionalRoom();
+    if (dr.exitTimer > 12) exitDimensionalRoom();
     return;
   }
 
@@ -2249,7 +2251,7 @@ function updateDimensionalRoom(dt) {
         {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
         {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
       ];
-      dr.exitDoors = [{x:W/2-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0}];
+      dr.exitDoors = [{x:W*0.8-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0, activeIn:2.0}];
       dr.exitTimer = 0;
       dr.creeperAlpha = 0;
       dr.creeperTimer = 0;
@@ -3249,27 +3251,29 @@ function renderDimensionalRoom() {
     }
   }
 
-  // Exit door drawn last — on top of everything, clearly visible
-  if (dr.phase === 'exit') {
+  // Exit door drawn last — on top of everything
+  if (dr.phase === 'exit' || dr.phase === 'creeperfade') {
     for (const door of dr.exitDoors) {
-      const pulse = 0.65 + 0.35 * Math.sin(GS.levelTimer * 4);
+      const active = (door.activeIn || 0) <= 0;
+      const pulse = active ? (0.65 + 0.35 * Math.sin(GS.levelTimer * 4)) : 0.3;
+      const col = active ? '#ffffff' : '#888888';
       ctx.save();
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 22;
-      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+      ctx.shadowColor = col; ctx.shadowBlur = active ? 22 : 6;
+      ctx.strokeStyle = col; ctx.lineWidth = 3;
       ctx.globalAlpha = pulse;
       ctx.strokeRect(door.x, door.y, door.w, door.h);
       const dg = ctx.createLinearGradient(door.x, door.y, door.x, door.y+door.h);
-      dg.addColorStop(0, 'rgba(255,255,255,0.35)');
-      dg.addColorStop(1, 'rgba(255,255,255,0.05)');
+      dg.addColorStop(0, active ? 'rgba(255,255,255,0.35)' : 'rgba(128,128,128,0.2)');
+      dg.addColorStop(1, 'rgba(0,0,0,0.05)');
       ctx.fillStyle = dg;
       ctx.fillRect(door.x, door.y, door.w, door.h);
       ctx.restore();
       ctx.save();
-      ctx.fillStyle = '#ffffff';
+      ctx.fillStyle = col; ctx.globalAlpha = pulse;
       ctx.font = 'bold 10px Chakra Petch, sans-serif';
       ctx.textAlign = 'center';
-      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
-      ctx.fillText('EXIT', door.x + door.w/2, door.y - 8);
+      ctx.shadowColor = col; ctx.shadowBlur = active ? 8 : 0;
+      ctx.fillText(active ? 'EXIT' : '...', door.x + door.w/2, door.y - 8);
       ctx.restore();
     }
   }
