@@ -1534,14 +1534,13 @@ function updateBullets(dt) {
     if (b.alive && GS.state === 'dimensional' && ['idle','fire'].includes(GS.dimRoom.dimBoss?.phase)) {
       const db = GS.dimRoom.dimBoss;
       if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:db.x,y:db.y,w:db.w,h:db.h})) {
-        db.hp--;
+        db.hp = Math.max(0, db.hp - 1);
         db.hitFlash = 0.45;
         db.redTint  = 1.0;
-        db.puffScale = 1.28; db.puffVel = -5;
         GS.score += 300;
-        spawnParticles(sx, b.y, 10, {color:'#aaeeff',speedMin:80,speedMax:280,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:6});
+        spawnParticles(sx, b.y, 10, {color:'#ffcc00',speedMin:80,speedMax:280,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:6});
         if (b.gunType !== 'railgun') b.alive = false;
-        if (db.hp <= 0) {
+        if (db.hp <= 0 && db.phase === 'idle' && db.phaseTimer >= 5) {
           db.phase = 'flee'; db.phaseTimer = 0; db.fleeTimer = 0;
           GS.flashAlpha = 0.6;
           GS.announceText = 'IT FLEES'; GS.announceAlpha = 2.0;
@@ -2390,6 +2389,11 @@ function updateDimBoss(dt) {
   } else if (db.phase === 'idle') {
     db.x = W/2 - db.w/2 + Math.sin(db.t * 1.4) * 38;
     db.y = H * 0.18 + Math.sin(db.t * 0.85) * 18;
+    if (db.hp <= 0 && db.phaseTimer >= 5) {
+      db.phase = 'flee'; db.phaseTimer = 0; db.fleeTimer = 0;
+      GS.flashAlpha = 0.6;
+      GS.announceText = 'IT FLEES'; GS.announceAlpha = 2.0;
+    }
   } else if (db.phase === 'flee') {
     db.fleeTimer += dt;
     db.x += db.fleeDir * 720 * dt;
