@@ -2166,16 +2166,16 @@ function updateDimensionalRoom(dt) {
       }
     }
 
-    // Door interaction (one center door)
+    // Door interaction — walk into it to exit (no button press needed)
     for (const door of dr.exitDoors) {
       if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:door.x,y:door.y,w:door.w,h:door.h})) {
-        if (Keys.just['ArrowUp'] || Keys.just['KeyW']) {
-          exitDimensionalRoom();
-          return;
-        }
+        door._t = (door._t || 0) + dt;
+        if (door._t > 0.25) { exitDimensionalRoom(); return; }
+      } else {
+        door._t = 0;
       }
     }
-    if (dr.exitTimer > 14) exitDimensionalRoom();
+    if (dr.exitTimer > 10) exitDimensionalRoom();
     return;
   }
 
@@ -2192,7 +2192,7 @@ function updateDimensionalRoom(dt) {
         {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
         {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
       ];
-      dr.exitDoors = [{x:W/2-25, y:H-80-82, w:50, h:80, type:'exit', chosen:false}];
+      dr.exitDoors = [{x:W/2-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0}];
       dr.exitTimer = 0;
       dr.phase = 'exit';
       GS.announceText = 'TAKE WHAT YOU WANT';
@@ -3178,53 +3178,26 @@ function renderDimensionalRoom() {
     if (e.alive) renderEnemy(e);
   }
 
-  // Exit doors (phase=exit)
-  if (dr.phase === 'exit') {
-    for (const door of dr.exitDoors) {
-      ctx.save();
-      const pulse = 0.6 + 0.4*Math.sin(GS.levelTimer*3);
-      ctx.globalAlpha = pulse;
-      ctx.strokeStyle = pal.accent;
-      ctx.lineWidth = 3;
-      ctx.shadowColor = pal.accent;
-      ctx.shadowBlur = 20;
-      ctx.strokeRect(door.x, door.y, door.w, door.h);
-      const dg = ctx.createLinearGradient(door.x, door.y, door.x, door.y+door.h);
-      dg.addColorStop(0, pal.accent+'60');
-      dg.addColorStop(1, 'transparent');
-      ctx.fillStyle = dg;
-      ctx.fillRect(door.x, door.y, door.w, door.h);
-      ctx.fillStyle = pal.accent;
-      ctx.font = '10px Chakra Petch, sans-serif';
-      ctx.textAlign = 'center';
-      ctx.shadowBlur = 0;
-      ctx.fillText('↑ ENTER', door.x+door.w/2, door.y + door.h + 20);
-      ctx.restore();
-    }
-  }
-
-  // Red tint fades in with creeper
+  // Red tint + creeper drawn FIRST so door/drops/player render on top
   if ((dr.phase === 'creeperfade' || dr.phase === 'exit') && dr.creeperAlpha > 0) {
     ctx.save();
     ctx.globalAlpha = dr.creeperAlpha * 0.28;
     ctx.fillStyle = '#cc0000';
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
-  }
 
-  // Creeper — static background figure
-  if ((dr.phase === 'creeperfade' || dr.phase === 'exit') && dr.creeperAlpha > 0) {
     if (!GS._creeperSprite) GS._creeperSprite = buildCreeperSprite();
-    const ch = Math.floor(H * 0.42);
+    // sit in upper-centre of arena, leaving bottom third clear for drops + door
+    const ch = Math.floor(H * 0.35);
     const cw = Math.floor(ch * (16 / 24));
     ctx.save();
     ctx.globalAlpha = dr.creeperAlpha * 0.88;
     ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(GS._creeperSprite, W/2 - cw/2, H - 80 - ch, cw, ch);
+    ctx.drawImage(GS._creeperSprite, W/2 - cw/2, H * 0.12, cw, ch);
     ctx.restore();
   }
 
-  // Physical drops
+  // Physical drops (drawn over creeper)
   if (dr.drops) {
     for (const drop of dr.drops) {
       if (!drop.alive) continue;
@@ -3244,6 +3217,31 @@ function renderDimensionalRoom() {
       ctx.shadowBlur = 0; ctx.fillStyle = col;
       ctx.font = '8px Share Tech Mono, monospace'; ctx.textAlign = 'center';
       ctx.fillText(lbl, drop.x + drop.w/2, drop.y + bob + drop.h/2 + 3);
+      ctx.restore();
+    }
+  }
+
+  // Exit door drawn last — on top of everything, clearly visible
+  if (dr.phase === 'exit') {
+    for (const door of dr.exitDoors) {
+      const pulse = 0.65 + 0.35 * Math.sin(GS.levelTimer * 4);
+      ctx.save();
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 22;
+      ctx.strokeStyle = '#ffffff'; ctx.lineWidth = 3;
+      ctx.globalAlpha = pulse;
+      ctx.strokeRect(door.x, door.y, door.w, door.h);
+      const dg = ctx.createLinearGradient(door.x, door.y, door.x, door.y+door.h);
+      dg.addColorStop(0, 'rgba(255,255,255,0.35)');
+      dg.addColorStop(1, 'rgba(255,255,255,0.05)');
+      ctx.fillStyle = dg;
+      ctx.fillRect(door.x, door.y, door.w, door.h);
+      ctx.restore();
+      ctx.save();
+      ctx.fillStyle = '#ffffff';
+      ctx.font = 'bold 10px Chakra Petch, sans-serif';
+      ctx.textAlign = 'center';
+      ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+      ctx.fillText('EXIT', door.x + door.w/2, door.y - 8);
       ctx.restore();
     }
   }
