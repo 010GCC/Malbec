@@ -2116,6 +2116,7 @@ function enterDimensionalRoom() {
 
 function spawnDimWave() {
   const dr = GS.dimRoom;
+  if (dr.phase !== 'wave') return; // ignore late-firing setTimeouts
   dr.enemies = [];
   const pal = GS.world.palette;
   const cx = canvas.width/2, cy = canvas.height/2;
@@ -2182,7 +2183,8 @@ function updateDimensionalRoom(dt) {
   if (dr.phase === 'creeperfade') {
     dr.creeperTimer += dt;
     dr.creeperAlpha = Math.min(1, dr.creeperAlpha + dt * 0.55);
-    if (dr.creeperAlpha >= 1 && dr.creeperTimer > 2.5) {
+    // transition to exit once fully faded in (or safety after 8s)
+    if (dr.creeperAlpha >= 1 || dr.creeperTimer > 8) {
       const W = canvas.width, H = canvas.height;
       const floorY = H - 80 - 26;
       const gunTypes = ['scatter','railgun','homing_spread'];
@@ -2227,9 +2229,11 @@ function updateDimensionalRoom(dt) {
 
     // Bullet hit handled in updateBullets
   }
+  const prevEnemyCount = dr.enemies.length;
   dr.enemies = dr.enemies.filter(e => e.alive);
 
-  if (dr.enemies.length === 0) {
+  // only transition when enemies JUST hit zero, not every frame during the inter-wave pause
+  if (prevEnemyCount > 0 && dr.enemies.length === 0) {
     dr.wave++;
     if (dr.wave >= dr.totalWaves) {
       // All waves cleared — creeper fades in
