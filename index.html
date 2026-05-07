@@ -2104,6 +2104,7 @@ function enterDimensionalRoom() {
   dr.totalWaves = 3;
   dr.enemies = [];
   dr.phase = 'wave';
+  dr.waveDelay = 0;
   dr.exitTimer = 0;
   dr.exitDoors = [];
   dr.drops = null;
@@ -2114,7 +2115,6 @@ function enterDimensionalRoom() {
 
 function spawnDimWave() {
   const dr = GS.dimRoom;
-  if (dr.phase !== 'wave') return; // ignore late-firing setTimeouts
   dr.enemies = [];
   const pal = GS.world.palette;
   const cx = canvas.width/2, cy = canvas.height/2;
@@ -2201,50 +2201,48 @@ function updateDimensionalRoom(dt) {
     return;
   }
 
+  // Inter-wave delay (replaces setTimeout — fully synchronous)
+  if (dr.waveDelay > 0) {
+    dr.waveDelay -= dt;
+    if (dr.waveDelay <= 0) spawnDimWave();
+    return;
+  }
+
   // Wave combat
   for (const e of dr.enemies) {
     if (!e.alive) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
 
-    // Chase player
-    {
-      const dx = p.x - e.x, dy = p.y - e.y;
-      const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-      const speed = e.type==='torso' ? 60 : (e.type==='head'?110:90);
-      e.vx = (dx/dist)*speed;
-      e.vy = (dy/dist)*speed;
-      e.x += e.vx * dt;
-      e.y += e.vy * dt;
-    }
-
-    // Boundary
+    const dx = p.x - e.x, dy = p.y - e.y;
+    const dist = Math.sqrt(dx*dx+dy*dy) || 1;
+    const speed = e.type==='torso' ? 60 : (e.type==='head' ? 110 : 90);
+    e.vx = (dx/dist)*speed;
+    e.vy = (dy/dist)*speed;
+    e.x += e.vx * dt;
+    e.y += e.vy * dt;
     e.x = clamp(e.x, 40, canvas.width-40-e.w);
     e.y = clamp(e.y, 60, canvas.height-80-e.h);
 
-    // Contact damage
     if (rectsOverlap({x:e.x,y:e.y,w:e.w,h:e.h},{x:p.x+2,y:p.y,w:p.w-4,h:p.h}) && !p.isEvading) {
       takeDamage(ENEMY_CONTACT_DMG);
     }
-
-    // Bullet hit handled in updateBullets
   }
+
   const prevEnemyCount = dr.enemies.length;
   dr.enemies = dr.enemies.filter(e => e.alive);
 
-  // only transition when enemies JUST hit zero, not every frame during the inter-wave pause
   if (prevEnemyCount > 0 && dr.enemies.length === 0) {
     dr.wave++;
     if (dr.wave >= dr.totalWaves) {
-      // All waves cleared — creeper fades in
       dr.phase = 'creeperfade';
       dr.creeperAlpha = 0;
       dr.creeperTimer = 0;
       GS.announceText = '???';
       GS.announceAlpha = 2.0;
     } else {
-      const nextLabel = ['HEADS', 'TORSOS', 'LEGS'][dr.wave] || '';
+      const nextLabel = ['HEADS','TORSOS','LEGS'][dr.wave] || '';
       if (nextLabel) { GS.announceText = nextLabel; GS.announceAlpha = 1.5; }
-      setTimeout(()=>spawnDimWave(), 900);
+      dr.waveDelay = 0.9;
     }
   }
 }
