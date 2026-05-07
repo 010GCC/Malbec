@@ -3163,6 +3163,19 @@ function renderDimensionalRoom() {
 
   const dr = GS.dimRoom;
 
+  // DEBUG bar — shows live state (temporary)
+  ctx.save();
+  ctx.fillStyle = 'rgba(0,0,0,0.75)';
+  ctx.fillRect(0, 0, W, 24);
+  ctx.fillStyle = '#ffff00';
+  ctx.font = '12px monospace';
+  ctx.textAlign = 'left';
+  ctx.fillText(
+    `phase:${dr.phase}  wave:${dr.wave}/${dr.totalWaves}  enemies:${dr.enemies.length}  delay:${(dr.waveDelay||0).toFixed(2)}  exitT:${(dr.exitTimer||0).toFixed(1)}`,
+    6, 16
+  );
+  ctx.restore();
+
   // Wave counter (hidden during assembly)
   if (dr.phase === 'wave') {
     ctx.fillStyle = 'rgba(255,255,255,0.4)';
