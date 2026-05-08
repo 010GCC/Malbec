@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.12.0';
+const VERSION = '1.13.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -810,7 +810,8 @@ function generateWorld() {
   for (let i=0;i<5;i++) chars.push(pick(CHARACTERISTICS));
   const name = chars.slice(0,3).join(' ');
   const pal = CHAR_PALETTES[chars[0]];
-  return { chars, name, palette: pal };
+  const bgType = pick(['natural','natural','natural','city','static']);
+  return { chars, name, palette: pal, bgType };
 }
 
 function resetGame() {
@@ -863,6 +864,7 @@ function resetGame() {
     platforms: [],
     spikes: [],
     pits: [],
+    lavaPatches: [],
 
     // Enemies
     enemies: [],
@@ -939,6 +941,7 @@ function generateLevel() {
   GS.screenCracks = [];
   GS.screenDistortion = 0;
   GS.boss = null;
+  GS.lavaPatches = [];
   GS.dimRoom.active = false;
   GS.worldReveal = 0;
   GS.worldNameFadeT = 0;
@@ -950,11 +953,21 @@ function generateLevel() {
   const fw = FLOOR_Y();
   const W = canvas.width;
 
-  // Platforms scattered across the level width
+  // Platforms — varied heights, widths, gaps, occasional clusters
   const levelWidth = GS.distanceGoal + W;
-  for (let x = W*0.4; x < levelWidth; x += randInt(180, 380)) {
-    const py = fw - randInt(1,4)*TILE*0.8;
-    GS.platforms.push({ x, y: py, w: randInt(80,180), h: 18, color: pal.platform });
+  let pfx = W * 0.4;
+  while (pfx < levelWidth) {
+    const cluster = Math.random() < 0.28 ? randInt(2, 3) : 1;
+    let clusterX = pfx;
+    for (let c = 0; c < cluster && clusterX < levelWidth; c++) {
+      const py = fw - randInt(1, 6) * TILE * (0.55 + Math.random() * 0.55);
+      const narrow = Math.random() < 0.18;
+      const pw = narrow ? randInt(28, 55) : randInt(55, 240);
+      const ph = randInt(12, 26);
+      GS.platforms.push({ x: clusterX, y: py, w: pw, h: ph, color: pal.platform });
+      clusterX += pw + randInt(30, 110);
+    }
+    pfx = clusterX + randInt(60, 480);
   }
 
   // Spikes (not in first section)
@@ -971,6 +984,20 @@ function generateLevel() {
       const pw = randInt(90, 140);
       GS.pits.push({ x, w: pw });
       x += pw;
+    }
+  }
+
+  // Lava patches — scattered floor hazards, not overlapping pits
+  {
+    const lavaEnd = GS.distanceGoal - 200;
+    for (let x = W * 0.7; x < lavaEnd; ) {
+      x += randInt(500, 1100);
+      if (x >= lavaEnd) break;
+      const lw = randInt(70, 180);
+      if (!GS.pits.some(p => x + lw + 50 > p.x && x - 50 < p.x + p.w)) {
+        GS.lavaPatches.push({ x, w: lw });
+      }
+      x += lw;
     }
   }
 
@@ -1212,6 +1239,15 @@ function updatePlayer(dt) {
   }
   // Always leave at least 1 jump when over a pit so player can recover
   if (overPit && p.jumpsLeft === 0) p.jumpsLeft = 1;
+
+  // Lava damage
+  if (p.onFloor && GS.lavaPatches) {
+    const px2 = p.x + p.w / 2;
+    if (GS.lavaPatches.some(lv => px2 > lv.x && px2 < lv.x + lv.w)) {
+      takeDamage(8 * dt);
+      GS.flashAlpha = Math.max(GS.flashAlpha, 0.15);
+    }
+  }
   // Fell into pit
   if (p.y > canvas.height + 60 && (GS.state === 'playing' || GS.state === 'boss')) {
     pitDeath();
@@ -1639,38 +1675,40 @@ function renderGunHUD() {
 }
 
 // ── Enemy Spawning ─────────────────────────────
-function spawnEnemy(worldX) {
+function spawnEnemy(worldX, forceType) {
   const pal = GS.world.palette;
-  let type;
-  if (GS.level === 1) {
-    type = Math.random() < 0.5 ? 'head' : 'legs';
-  } else {
-    type = ['head','legs','torso'][randInt(0,2)];
+  let type = forceType;
+  if (!type) {
+    if (GS.level === 1) {
+      type = pick(['head','legs','jumper']);
+    } else {
+      type = pick(['head','legs','torso','jumper','charger','floater']);
+    }
   }
 
   const fw = FLOOR_Y();
-  const flying = type === 'head';
+  const aerial = type === 'head' || type === 'floater';
   const seed = randInt(1, 99999);
+  const big = type === 'torso' || type === 'charger';
+  const w = big ? 52 : (type === 'floater' ? 40 : 28);
+  const h = big ? 40 : (type === 'floater' ? 36 : (aerial ? 22 : 28));
 
   const enemy = {
     type,
     x: worldX,
-    y: flying ? rand(fw*0.2, fw*0.55) : fw - 30,
-    w: type==='torso' ? 52 : 28,
-    h: type==='torso' ? 40 : (flying ? 22 : 28),
-    vx: type==='torso' ? rand(-60,-30) : (flying ? rand(-100,-60) : rand(-80,-40)),
-    vy: flying ? Math.sin(Date.now()*0.002)*20 : 0,
-    hp: type==='torso' ? 4 : 2,
+    y: aerial ? rand(fw*0.15, fw*0.55) : fw - h,
+    w, h,
+    vx: big ? rand(-55,-25) : (aerial ? rand(-90,-55) : rand(-75,-35)),
+    vy: 0,
+    hp: type === 'floater' ? 6 : (big ? 4 : 2),
     hitFlash: 0,
     alive: true,
-    sprite: genSprite(seed, type==='torso'?52:28, type==='torso'?40:(flying?22:28), pal),
+    sprite: genSprite(seed, w, h, pal),
     seed,
-    // Blob (legs) animation state
-    blobPhase: 'move',
-    blobTimer: rand(0.4, 0.9),
-    // Alien (torso) animation state
-    alienPhase: 'stalk',
-    alienTimer: rand(0.8, 2.0),
+    blobPhase: 'move', blobTimer: rand(0.4, 0.9),
+    alienPhase: 'stalk', alienTimer: rand(0.8, 2.0),
+    jumperTimer: rand(0.6, 1.4), jumperAir: false,
+    chargerPhase: 'wait', chargerTimer: rand(1.0, 2.2),
   };
   GS.enemies.push(enemy);
 }
@@ -1721,6 +1759,41 @@ function updateEnemies(dt) {
       }
       if (e.blobPhase === 'move') e.x += e.vx * dt;
       e.y = fw - e.h;
+    } else if (e.type === 'jumper') {
+      e.jumperTimer -= dt;
+      if (!e.jumperAir && e.jumperTimer <= 0) {
+        e.vy = -rand(420, 560);
+        e.vx = dir * rand(90, 150);
+        e.jumperAir = true;
+        e.jumperTimer = rand(0.8, 1.6);
+      }
+      e.vy += 900 * dt;
+      e.x += e.vx * dt;
+      e.y += e.vy * dt;
+      if (e.y >= fw - e.h) { e.y = fw - e.h; e.vy = 0; e.jumperAir = false; }
+    } else if (e.type === 'charger') {
+      e.chargerTimer -= dt;
+      if (e.chargerTimer <= 0) {
+        if (e.chargerPhase === 'wait') {
+          e.chargerPhase = 'charge';
+          e.chargerTimer = rand(0.45, 0.7);
+          e.vx = dir * rand(300, 420);
+        } else {
+          e.chargerPhase = 'wait';
+          e.chargerTimer = rand(1.0, 2.0);
+          e.vx = 0;
+        }
+      }
+      if (e.chargerPhase === 'charge') e.vx *= 0.88;
+      e.x += e.vx * dt;
+      e.y = fw - e.h;
+    } else if (e.type === 'floater') {
+      e.x += e.vx * dt;
+      e.vy = Math.sin(GS.levelTimer * 1.4 + e.seed * 0.0001) * 55;
+      e.y += e.vy * dt;
+      e.y = clamp(e.y, fw * 0.12, fw * 0.62);
+      if (e.x - GS.cameraX < -50) e.vx = Math.abs(e.vx);
+      if (e.x - GS.cameraX > canvas.width * 0.9) e.vx = -Math.abs(e.vx);
     } else {
       // Alien: slow stalk then sudden lunge
       e.alienTimer -= dt;
@@ -2121,55 +2194,18 @@ function enterDimensionalRoom() {
   GS.state = 'dimensional';
   const dr = GS.dimRoom;
   dr.active = true;
-  dr.wave = 0;
-  dr.totalWaves = 3;
   dr.enemies = [];
-  dr.phase = 'wave';
-  dr.waveDelay = 0;
-  dr.waveClearPending = false;
+  dr.phase = 'madness';
+  dr.madnessTimer = 60;
+  dr.spawnTimer = 0.5;
   dr.exitTimer = 0;
   dr.exitDoors = [];
   dr.drops = null;
   dr.creeperAlpha = 0;
   dr.creeperTimer = 0;
-  spawnDimWave();
+  dr.waveClearPending = false;
 }
 
-function spawnDimWave() {
-  const dr = GS.dimRoom;
-  dr.enemies = [];
-  dr.waveClearPending = true;
-  const pal = GS.world.palette;
-  const cx = canvas.width/2, cy = canvas.height/2;
-
-  // wave 0=heads, 1=torsos, 2=legs
-  const waveTypes = [
-    ['head','head','head'],
-    ['torso','torso','torso'],
-    ['legs','legs','legs'],
-  ];
-  const types = waveTypes[Math.min(dr.wave, 2)];
-
-  for (let i=0; i<types.length; i++) {
-    const type = types[i];
-    const angle = (i/types.length) * Math.PI*2;
-    const ew = type==='torso'?52:28, eh = type==='torso'?40:28;
-    dr.enemies.push({
-      type,
-      x: clamp(cx + Math.cos(angle)*rand(150,220), 50, canvas.width-50-ew),
-      y: clamp(cy + Math.sin(angle)*rand(80,180), 70, canvas.height-100-eh),
-      vx: 0, vy: 0,
-      w: ew,
-      h: eh,
-      hp: type==='torso'?4:2,
-      hitFlash: 0,
-      alive: true,
-      orbit: null,
-      seed: randInt(1, 99999),
-      sprite: genSprite(randInt(1,99999), type==='torso'?52:28, 28, pal),
-    });
-  }
-}
 
 function updateDimensionalRoom(dt) {
   const dr = GS.dimRoom;
@@ -2177,8 +2213,11 @@ function updateDimensionalRoom(dt) {
 
   if (dr.phase === 'exit' || dr.phase === 'creeperfade') {
     dr.exitTimer = (dr.exitTimer || 0) + dt;
-
-    // Physical drop collection
+    if (dr.phase === 'creeperfade') {
+      dr.creeperTimer += dt;
+      dr.creeperAlpha = Math.min(1, dr.creeperAlpha + dt * 0.55);
+      if (dr.creeperAlpha >= 1) dr.phase = 'exit';
+    }
     if (dr.drops) {
       for (const drop of dr.drops) {
         if (!drop.alive) continue;
@@ -2189,81 +2228,101 @@ function updateDimensionalRoom(dt) {
         }
       }
     }
-
-    // Door interaction — walk into it after activation delay
     for (const door of dr.exitDoors) {
       door.activeIn = Math.max(0, (door.activeIn || 0) - dt);
-      if (door.activeIn > 0) continue; // not active yet
+      if (door.activeIn > 0) continue;
       if (rectsOverlap({x:p.x,y:p.y,w:p.w,h:p.h},{x:door.x,y:door.y,w:door.w,h:door.h})) {
         door._t = (door._t || 0) + dt;
         if (door._t > 0.4) { exitDimensionalRoom(); return; }
-      } else {
-        door._t = 0;
-      }
+      } else { door._t = 0; }
     }
-    if (dr.exitTimer > 12) exitDimensionalRoom();
+    if (dr.exitTimer > 14) exitDimensionalRoom();
     return;
   }
 
-  // creeperfade: tick alpha only; door/drop interaction handled in the block above
-  if (dr.phase === 'creeperfade') {
-    dr.creeperTimer += dt;
-    dr.creeperAlpha = Math.min(1, dr.creeperAlpha + dt * 0.55);
-    if (dr.creeperAlpha >= 1) dr.phase = 'exit';
+  // ── Madness phase: 60s of continuous enemy spawning ──
+  if (dr.phase === 'madness') {
+    dr.madnessTimer -= dt;
+    dr.spawnTimer -= dt;
+    const intensity = 1 - Math.max(0, dr.madnessTimer / 60); // 0→1 over 60s
+    const spawnRate = 0.6 + (1 - intensity) * 0.8; // starts at 1.4s gaps, ends at 0.6s
+    if (dr.spawnTimer <= 0) {
+      dr.spawnTimer = rand(spawnRate * 0.6, spawnRate * 1.2);
+      spawnDimEnemy();
+      if (intensity > 0.4 && Math.random() < 0.4) spawnDimEnemy();
+      if (intensity > 0.7 && Math.random() < 0.3) spawnDimEnemy();
+    }
+    if (dr.madnessTimer <= 0) {
+      dr.phase = 'clear';
+      GS.announceText = 'SURVIVE!';
+      GS.announceAlpha = 1.5;
+    }
   }
 
-  // Inter-wave delay (replaces setTimeout — fully synchronous)
-  if (dr.waveDelay > 0) {
-    dr.waveDelay -= dt;
-    if (dr.waveDelay <= 0) spawnDimWave();
-    return;
+  // ── Clear phase: wait for remaining enemies to die ──
+  if (dr.phase === 'clear' && dr.enemies.filter(e => e.alive).length === 0) {
+    const W = canvas.width, H = canvas.height;
+    const floorY = H - 80 - 26;
+    const gunTypes = ['scatter','railgun','homing_spread'];
+    const bonusType = Math.random() < 0.5 ? 'heart' : 'invincibility';
+    dr.drops = [
+      {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
+      {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
+    ];
+    dr.exitDoors = [{x:W*0.8-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0, activeIn:1.5}];
+    dr.exitTimer = 0;
+    dr.creeperAlpha = 0;
+    dr.creeperTimer = 0;
+    dr.phase = 'creeperfade';
+    GS.announceText = 'TAKE WHAT YOU WANT';
+    GS.announceAlpha = 2.2;
   }
 
-  // Wave combat
+  // Enemy AI (shared by madness and clear phases)
   for (const e of dr.enemies) {
     if (!e.alive) continue;
     if (e.hitFlash > 0) e.hitFlash -= dt;
-
     const dx = p.x - e.x, dy = p.y - e.y;
     const dist = Math.sqrt(dx*dx+dy*dy) || 1;
-    const speed = e.type==='torso' ? 60 : (e.type==='head' ? 110 : 90);
-    e.vx = (dx/dist)*speed;
-    e.vy = (dy/dist)*speed;
+    const baseSpeed = e.type==='torso'||e.type==='charger' ? 65 : (e.type==='head'||e.type==='floater' ? 95 : 80);
+    e.vx = (dx/dist)*baseSpeed;
+    e.vy = (dy/dist)*baseSpeed;
     e.x += e.vx * dt;
     e.y += e.vy * dt;
     e.x = clamp(e.x, 40, canvas.width-40-e.w);
     e.y = clamp(e.y, 60, canvas.height-80-e.h);
-
-    // no contact damage in dim room — shoot to kill
   }
-
   dr.enemies = dr.enemies.filter(e => e.alive);
+}
 
-  // waveClearPending is set by spawnDimWave — true means enemies were active this wave
-  if (dr.waveClearPending && dr.enemies.length === 0) {
-    dr.waveClearPending = false;
-    dr.wave++;
-    if (dr.wave >= dr.totalWaves) {
-      // All waves done — spawn drops + door immediately, start creeper fade
-      const W = canvas.width, H = canvas.height;
-      const floorY = H - 80 - 26;
-      const gunTypes = ['scatter','railgun','homing_spread'];
-      const bonusType = Math.random() < 0.5 ? 'heart' : 'invincibility';
-      dr.drops = [
-        {x:W*0.32-13, y:floorY, w:26, h:20, type:pick(gunTypes), category:'gun', alive:true, bobT:0},
-        {x:W*0.68-13, y:floorY, w:26, h:20, type:bonusType, category:'bonus', alive:true, bobT:0},
-      ];
-      dr.exitDoors = [{x:W*0.8-30, y:H-80-90, w:60, h:90, type:'exit', chosen:false, _t:0, activeIn:2.0}];
-      dr.exitTimer = 0;
-      dr.creeperAlpha = 0;
-      dr.creeperTimer = 0;
-      dr.phase = 'creeperfade'; // creeper fades in visually while door is already live
-      GS.announceText = 'TAKE WHAT YOU WANT';
-      GS.announceAlpha = 2.2;
-    } else {
-      dr.waveDelay = 0.9;
-    }
-  }
+function spawnDimEnemy() {
+  const dr = GS.dimRoom;
+  const pal = GS.world.palette;
+  const W = canvas.width, H = canvas.height;
+  const allTypes = ['head','legs','torso','jumper','floater','charger'];
+  const type = pick(allTypes);
+  const aerial = type === 'head' || type === 'floater';
+  const big = type === 'torso' || type === 'charger';
+  const w = big ? 52 : (type === 'floater' ? 40 : 28);
+  const h = big ? 40 : (type === 'floater' ? 36 : (aerial ? 22 : 28));
+  const seed = randInt(1, 99999);
+  // Spawn from random edge of arena
+  const edge = randInt(0, 3);
+  let x, y;
+  if (edge === 0) { x = rand(50, W-50-w); y = 65; }
+  else if (edge === 1) { x = rand(50, W-50-w); y = H-90-h; }
+  else if (edge === 2) { x = 45; y = rand(70, H-90-h); }
+  else { x = W-45-w; y = rand(70, H-90-h); }
+  dr.enemies.push({
+    type, x, y, w, h, vx: 0, vy: 0,
+    hp: type==='floater' ? 5 : (big ? 4 : 2),
+    hitFlash: 0, alive: true, seed,
+    sprite: genSprite(seed, w, h, pal),
+    blobPhase:'move', blobTimer:rand(0.4,0.9),
+    alienPhase:'stalk', alienTimer:rand(0.8,2.0),
+    jumperTimer:rand(0.6,1.4), jumperAir:false,
+    chargerPhase:'wait', chargerTimer:rand(1.0,2.2),
+  });
 }
 
 
@@ -2483,8 +2542,63 @@ function renderBackground(pal) {
     }
   }
 
-  // Silhouette trees (parallax 0.28)
-  {
+  if (GS.world.bgType === 'city') {
+    // City silhouette (parallax 0.12)
+    const tileW = W * 2.5;
+    const offX  = GS.cameraX * 0.12;
+    const startX = -(offX % tileW);
+    const rngC  = mulberry32(GS.level * 79 + 31);
+    const buildings = [];
+    for (let x = 0; x < tileW; ) {
+      const bw = rngC() * 60 + 20;
+      const bh = H * (0.12 + rngC() * 0.38);
+      buildings.push({ x, w: bw, h: bh });
+      x += bw + rngC() * 6;
+    }
+    for (let copy = 0; copy <= 1; copy++) {
+      const ox = startX + copy * tileW;
+      if (ox > W + 20 || ox + tileW < -20) continue;
+      for (const b of buildings) {
+        const bx = ox + b.x;
+        if (bx > W + 10 || bx + b.w < -10) continue;
+        const by = fw - b.h;
+        ctx.fillStyle = 'rgba(0,0,0,0.82)';
+        ctx.fillRect(bx, by, b.w, b.h);
+        // Lit windows
+        const rngW = mulberry32(Math.floor(b.x * 7 + GS.level * 13));
+        ctx.fillStyle = pal.accent + '99';
+        const cols = Math.floor(b.w / 10);
+        const rows = Math.floor(b.h / 14);
+        for (let r = 0; r < rows; r++) {
+          for (let c = 0; c < cols; c++) {
+            if (rngW() < 0.35) {
+              ctx.fillRect(bx + 3 + c * 10, by + 5 + r * 14, 5, 7);
+            }
+          }
+        }
+      }
+    }
+  } else if (GS.world.bgType === 'static') {
+    // TV static — random noise overlay
+    const imgData = ctx.createImageData(W, H);
+    const d = imgData.data;
+    const rr = parseInt(pal.accent.slice(1,3),16);
+    const rg = parseInt(pal.accent.slice(3,5),16);
+    const rb = parseInt(pal.accent.slice(5,7),16);
+    for (let i = 0; i < W * H; i++) {
+      const v = Math.random();
+      if (v > 0.88) {
+        const p = i * 4;
+        d[p]   = rr; d[p+1] = rg; d[p+2] = rb;
+        d[p+3] = Math.floor(v * 60);
+      }
+    }
+    ctx.putImageData(imgData, 0, 0);
+    // Scanlines
+    ctx.fillStyle = 'rgba(0,0,0,0.18)';
+    for (let y = 0; y < H; y += 4) ctx.fillRect(0, y, W, 2);
+  } else {
+    // Natural — silhouette trees (parallax 0.28)
     const tileW  = W * 1.4;
     const offX   = GS.cameraX * 0.28;
     const startX = -(offX % tileW);
@@ -2520,10 +2634,8 @@ function renderBackground(pal) {
             ctx.lineTo(tx + lw, bot);
             ctx.closePath(); ctx.fill();
           }
-          // Trunk
           ctx.fillRect(tx - tree.h*0.045, base - tree.h*0.18, tree.h*0.09, tree.h*0.18);
         } else {
-          // Bare / dead tree
           const tw = tree.h * 0.065;
           ctx.fillRect(tx - tw/2, tip, tw, tree.h);
           ctx.lineWidth = tw * 0.55;
@@ -2614,6 +2726,27 @@ function renderFloor() {
       ctx.lineTo(sx + i*sw + sw, sp.y + sp.h);
       ctx.closePath();
       ctx.fill();
+    }
+  }
+
+  // Lava patches
+  if (GS.lavaPatches) {
+    const pulse = 0.7 + 0.3 * Math.sin(GS.levelTimer * 4.5);
+    for (const lv of GS.lavaPatches) {
+      const lsx = lv.x - GS.cameraX;
+      if (lsx > W + 10 || lsx + lv.w < -10) continue;
+      const lg = ctx.createLinearGradient(lsx, fw, lsx, fw + 18);
+      lg.addColorStop(0, `rgba(255,${Math.floor(80*pulse)},0,0.95)`);
+      lg.addColorStop(0.5, `rgba(200,30,0,0.9)`);
+      lg.addColorStop(1, `rgba(100,0,0,0.6)`);
+      ctx.fillStyle = lg;
+      ctx.fillRect(lsx, fw, lv.w, 18);
+      ctx.save();
+      ctx.shadowColor = '#ff4400';
+      ctx.shadowBlur = 12 + 8 * pulse;
+      ctx.fillStyle = `rgba(255,160,0,${0.5 * pulse})`;
+      ctx.fillRect(lsx, fw, lv.w, 4);
+      ctx.restore();
     }
   }
 }
@@ -2910,9 +3043,9 @@ function renderEnemy(e) {
     ctx.shadowBlur = 8;
   }
   const pal = GS.world.palette;
-  if (e.type === 'head') {
+  if (e.type === 'head' || e.type === 'floater') {
     drawEnemyHead(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash);
-  } else if (e.type === 'legs') {
+  } else if (e.type === 'legs' || e.type === 'jumper') {
     drawEnemyLegs(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash, e);
   } else {
     drawEnemyTorso(ctx, sx, e.y, e.w, e.h, pal, e.hitFlash, e);
@@ -3072,6 +3205,28 @@ function renderDimensionalRoom() {
 
   const dr = GS.dimRoom;
 
+  // Madness timer display
+  if (dr.phase === 'madness') {
+    const t = Math.max(0, dr.madnessTimer);
+    const pulse = t < 10 ? 0.6 + 0.4*Math.sin(GS.levelTimer*12) : 1;
+    ctx.save();
+    ctx.globalAlpha = 0.85 * pulse;
+    ctx.fillStyle = t < 10 ? '#ff3300' : pal.accent;
+    ctx.font = `bold ${Math.floor(H*0.06)}px 'Chakra Petch', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.shadowColor = t < 10 ? '#ff0000' : pal.accent;
+    ctx.shadowBlur = 16;
+    ctx.fillText(Math.ceil(t), W/2, 44);
+    ctx.restore();
+  } else if (dr.phase === 'clear') {
+    ctx.save();
+    ctx.globalAlpha = 0.7 + 0.3*Math.sin(GS.levelTimer*8);
+    ctx.fillStyle = '#ffffff';
+    ctx.font = `bold ${Math.floor(H*0.04)}px 'Chakra Petch', sans-serif`;
+    ctx.textAlign = 'center';
+    ctx.fillText('CLEAR THEM OUT', W/2, 44);
+    ctx.restore();
+  }
 
   // Enemies (skip dead — bullets kill during updateBullets which runs after the filter)
   for (const e of dr.enemies) {
