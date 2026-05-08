@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.11.1';
+const VERSION = '1.11.2';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -2258,8 +2258,6 @@ function updateDimensionalRoom(dt) {
       GS.announceText = 'TAKE WHAT YOU WANT';
       GS.announceAlpha = 2.2;
     } else {
-      const nextLabel = ['HEADS','TORSOS','LEGS'][dr.wave] || '';
-      if (nextLabel) { GS.announceText = nextLabel; GS.announceAlpha = 1.5; }
       dr.waveDelay = 0.9;
     }
   }
