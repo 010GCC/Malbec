@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.11.0';
+const VERSION = '1.11.1';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -3181,29 +3181,6 @@ function renderDimensionalRoom() {
 
   const dr = GS.dimRoom;
 
-  // DEBUG bar
-  ctx.save();
-  ctx.fillStyle = 'rgba(0,0,0,0.85)';
-  ctx.fillRect(0, 0, W, GS._err ? 44 : 28);
-  ctx.fillStyle = '#ffff00';
-  ctx.font = '11px monospace';
-  ctx.textAlign = 'left';
-  const p2 = GS.player;
-  ctx.fillText(`${dr.phase} w${dr.wave} e${dr.enemies.length} xT${(dr.exitTimer||0).toFixed(0)} d${(dr.exitDoors[0]?.activeIn||0).toFixed(1)}`, 4, 12);
-  ctx.fillText(`hp${Math.round(p2.hp)} hrt${p2.hearts} dly${(dr.waveDelay||0).toFixed(1)} pnd${dr.waveClearPending?1:0}`, 4, 25);
-  if (GS._err) {
-    ctx.fillStyle = '#ff4444';
-    ctx.fillText(GS._err, 4, 40);
-  }
-  ctx.restore();
-
-  // Wave counter (hidden during assembly)
-  if (dr.phase === 'wave') {
-    ctx.fillStyle = 'rgba(255,255,255,0.4)';
-    ctx.font = '12px Share Tech Mono, monospace';
-    ctx.textAlign = 'left';
-    ctx.fillText(`WAVE ${dr.wave+1}/${dr.totalWaves}`, 32, 80);
-  }
 
   // Enemies (skip dead — bullets kill during updateBullets which runs after the filter)
   for (const e of dr.enemies) {
