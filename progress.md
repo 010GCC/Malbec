@@ -26,7 +26,7 @@
 - **Vertical traversal:** levels are taller; some progress gates require boosting up to upper platforms.
 - **Cutscenes:** intro, biome transitions, boss warning, victory.
 
-## Status (v2.0.0)
+## Status (v1.13.0)
 - [x] Branch `alien-space-overhaul` created
 - [x] `progress.md` initialized
 - [x] Full rewrite of `index.html` with cohesive 32-bit alien-space pixel-art theme
