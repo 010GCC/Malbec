@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.13.0';
+const VERSION = '1.14.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -679,57 +679,145 @@ function buildPlayerSprite() {
   return oc;
 }
 
-// ── Creeper sprite (dim room boss figure) ─────
-const CREEPER_PAL = [
-  null, '#1a3300', '#2d5a00', '#3d7a00', '#5aaa00', '#000000'
-];
-const CREEPER_PIXELS =
-  '0000133333310000' + // 0  head top
-  '0000133333310000' + // 1
-  '0000155335510000' + // 2  eyes
-  '0000155335510000' + // 3  eyes
-  '0000133333310000' + // 4
-  '0000133553310000' + // 5  nose
-  '0000133553310000' + // 6  nose
-  '0000153333510000' + // 7  mouth
-  '0000135335310000' + // 8  mouth
-  '0000133333310000' + // 9  head bottom
-  '0000013333100000' + // 10 body
-  '0000013333100000' + // 11
-  '0000013333100000' + // 12
-  '0000013333100000' + // 13
-  '0000013333100000' + // 14
-  '0000013333100000' + // 15
-  '0000013333100000' + // 16
-  '0000013333100000' + // 17 body
-  '0001333001330000' + // 18 legs
-  '0001333001330000' + // 19
-  '0001333001330000' + // 20
-  '0001333001330000' + // 21
-  '0000133000330000' + // 22 leg bottom
-  '0000000000000000';  // 23
-function buildCreeperSprite(pal) {
-  const W = 16, H = 24;
-  const oc = document.createElement('canvas');
-  oc.width = W; oc.height = H;
-  const cx = oc.getContext('2d');
-  cx.imageSmoothingEnabled = false;
-  const img = cx.createImageData(W, H);
-  const d = img.data;
-  const usePal = pal
-    ? [null, darken(pal.mid, 0.5), darken(pal.mid, 0.2), pal.mid, pal.accent, '#000000']
-    : CREEPER_PAL;
-  for (let i = 0; i < W * H; i++) {
-    const col = usePal[+CREEPER_PIXELS[i]];
-    const p = i * 4;
-    if (!col) { d[p+3] = 0; continue; }
-    d[p]   = parseInt(col.slice(1,3),16);
-    d[p+1] = parseInt(col.slice(3,5),16);
-    d[p+2] = parseInt(col.slice(5,7),16);
-    d[p+3] = 255;
+// ── Boss damage constants ──────────────────────
+const BOSS_UMBRA_DMG    = 12; // neck hit (hot zone)
+const BOSS_PENUMBRA_DMG =  6; // body hit
+
+function getBossZone(boss, hitY) {
+  const neckY = boss.y + boss.h * 0.28;
+  return Math.abs(hitY - neckY) < boss.h * 0.11 ? 'umbra' : 'penumbra';
+}
+
+// ── Cartoon Metroid boss renderer ─────────────
+function drawCartoonBoss(ctx, x, y, w, h, pal, t, flash) {
+  const cx = x + w / 2;
+  const bodyCol   = flash ? '#ffffff' : pal.mid;
+  const darkCol   = flash ? '#cccccc' : darken(pal.mid, 0.45);
+  const lightCol  = flash ? '#ffffff' : lighten(pal.mid, 0.28);
+  const accentCol = pal.accent;
+
+  ctx.save();
+
+  // Legs — two squat ovals + small claw triangles
+  const legCY = y + h * 0.89;
+  const legRX = w * 0.22;
+  const legRY = h * 0.09;
+  ctx.fillStyle = darkCol;
+  for (const side of [-1, 1]) {
+    const lx = cx + side * w * 0.24;
+    ctx.beginPath();
+    ctx.ellipse(lx, legCY, legRX, legRY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    // toe claws
+    ctx.fillStyle = flash ? '#aaaaaa' : darken(pal.mid, 0.7);
+    for (let c = -1; c <= 1; c++) {
+      ctx.beginPath();
+      ctx.moveTo(lx + c * legRX * 0.52, legCY + legRY * 0.55);
+      ctx.lineTo(lx + c * legRX * 0.52 - side * 2, legCY + legRY * 1.7);
+      ctx.lineTo(lx + c * legRX * 0.52 + side * 5, legCY + legRY * 1.6);
+      ctx.closePath();
+      ctx.fill();
+    }
+    ctx.fillStyle = darkCol;
   }
-  cx.putImageData(img, 0, 0);
-  return oc;
+
+  // Body — large rounded oval with ridge arcs + shoulder spikes
+  const bodyCY = y + h * 0.58;
+  const bodyRX = w * 0.46;
+  const bodyRY = h * 0.30;
+  ctx.fillStyle = bodyCol;
+  ctx.beginPath();
+  ctx.ellipse(cx, bodyCY, bodyRX, bodyRY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // belly highlight
+  ctx.fillStyle = lightCol;
+  ctx.beginPath();
+  ctx.ellipse(cx, bodyCY - bodyRY * 0.18, bodyRX * 0.46, bodyRY * 0.36, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // ridge arcs
+  ctx.strokeStyle = darkCol;
+  ctx.lineWidth = 1.8;
+  for (let i = 0; i < 3; i++) {
+    const ry2 = bodyCY - bodyRY * 0.38 + i * bodyRY * 0.33;
+    ctx.beginPath();
+    ctx.ellipse(cx, ry2, bodyRX * 0.82, bodyRY * 0.13, 0, 0, Math.PI);
+    ctx.stroke();
+  }
+  // shoulder spikes
+  ctx.fillStyle = darkCol;
+  for (const side of [-1, 1]) {
+    const sx2 = cx + side * bodyRX * 0.74;
+    const sy2 = bodyCY - bodyRY * 0.52;
+    ctx.beginPath();
+    ctx.moveTo(sx2, sy2);
+    ctx.lineTo(sx2 + side * w * 0.24, sy2 - h * 0.13);
+    ctx.lineTo(sx2 + side * w * 0.17, sy2 + h * 0.08);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Neck — umbra zone, glowing ring
+  const neckCY = y + h * 0.33;
+  const neckRX = w * 0.16;
+  const neckRY = h * 0.08;
+  ctx.fillStyle = bodyCol;
+  ctx.beginPath();
+  ctx.ellipse(cx, neckCY, neckRX, neckRY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  ctx.save();
+  ctx.shadowColor = accentCol;
+  ctx.shadowBlur = 10 + 5 * Math.sin(t * 4.5);
+  ctx.strokeStyle = accentCol;
+  ctx.lineWidth = 2.5;
+  ctx.beginPath();
+  ctx.ellipse(cx, neckCY, neckRX + 5, neckRY + 4, 0, 0, Math.PI * 2);
+  ctx.stroke();
+  ctx.restore();
+
+  // Head — oval with forehead ridge and horn nubs
+  const headCY = y + h * 0.165;
+  const headRX = w * 0.35;
+  const headRY = h * 0.165;
+  ctx.fillStyle = bodyCol;
+  ctx.beginPath();
+  ctx.ellipse(cx, headCY, headRX, headRY, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // forehead ridge
+  ctx.fillStyle = darkCol;
+  ctx.beginPath();
+  ctx.ellipse(cx, headCY - headRY * 0.38, headRX * 0.72, headRY * 0.22, 0, 0, Math.PI * 2);
+  ctx.fill();
+  // horns
+  for (const side of [-1, 1]) {
+    ctx.beginPath();
+    ctx.moveTo(cx + side * headRX * 0.52, headCY - headRY * 0.55);
+    ctx.lineTo(cx + side * headRX * 0.72, headCY - headRY * 1.32);
+    ctx.lineTo(cx + side * headRX * 0.32, headCY - headRY * 0.65);
+    ctx.closePath();
+    ctx.fill();
+  }
+
+  // Eyes — glowing with dark pupils
+  const eyeY  = headCY + headRY * 0.04;
+  const eyeRX = headRX * 0.24;
+  const eyeRY = headRY * 0.38;
+  for (const side of [-1, 1]) {
+    const ex = cx + side * headRX * 0.38;
+    ctx.save();
+    ctx.shadowColor = flash ? '#ffffff' : accentCol;
+    ctx.shadowBlur = 12 + 5 * Math.sin(t * 3.2);
+    ctx.fillStyle = flash ? '#ffffff' : lighten(accentCol, 0.3);
+    ctx.beginPath();
+    ctx.ellipse(ex, eyeY, eyeRX, eyeRY, 0, 0, Math.PI * 2);
+    ctx.fill();
+    ctx.restore();
+    ctx.fillStyle = '#0a0a1a';
+    ctx.beginPath();
+    ctx.ellipse(ex, eyeY + eyeRY * 0.1, eyeRX * 0.5, eyeRY * 0.58, 0, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  ctx.restore();
 }
 
 // ── Procedural Sprite Generator ───────────────
@@ -1033,8 +1121,8 @@ function spawnBoss() {
     x: GS.cameraX + canvas.width * 0.72,
     y: fw - 150,
     w: 88, h: 150,
-    headHits: 0, bodyHits: 0, legHits: 0,
-    headHP: 3, bodyHP: 3, legHP: 3,
+    hitsAccum: 0,
+    bossHP: 100,
     // State machine
     phase: 'approach',
     phaseTimer: 0,
@@ -1059,7 +1147,6 @@ function spawnBoss() {
     dying: false,
     dead: false,
     dyingTimer: 0,
-    legless: false,
     headSprite: null,
   };
   GS.bossActive = true;
@@ -1413,6 +1500,16 @@ function fireGun() {
       }
     }
     GS.enemies = GS.enemies.filter(e => e.alive);
+    // Boss hit (railgun is a screen-clearing beam; boss is always on screen in boss fight)
+    if (GS.boss && GS.boss.alive && !GS.boss.dying) {
+      const boss = GS.boss;
+      const bsx = boss.x - GS.cameraX;
+      if (boss.y + boss.h > hitBand.y && boss.y < hitBand.y + hitBand.h) {
+        const zone = getBossZone(boss, by);
+        spawnParticles(bsx+boss.w/2, by, 6, {color:'#ffff44',speedMin:60,speedMax:200,lifeMin:0.1,lifeMax:0.3,sizeMin:2,sizeMax:4,upBias:30});
+        hitBossZone(boss, zone, bsx, by);
+      }
+    }
     // Dimensional room enemies (screen-space coords, separate array)
     if (GS.state === 'dimensional' && GS.dimRoom.active) {
       for (const e of GS.dimRoom.enemies) {
@@ -1535,9 +1632,8 @@ function updateBullets(dt) {
       const bsx = boss.x - GS.cameraX;
       if (rectsOverlap({x:sx-3,y:b.y-3,w:6,h:6},{x:bsx,y:boss.y,w:boss.w,h:boss.h})) {
         spawnParticles(sx, b.y, 6, {color:GUN_DEFS[b.gunType].color,speedMin:60,speedMax:200,lifeMin:0.1,lifeMax:0.3,sizeMin:2,sizeMax:4,upBias:30});
-        const zone = b.y < boss.y + boss.h*0.38 ? 'head'
-                   : b.y < boss.y + boss.h*0.68 ? 'body' : 'legs';
-        hitBossZone(boss, zone, bsx);
+        const zone = getBossZone(boss, b.y);
+        hitBossZone(boss, zone, bsx, b.y);
         GS.score += 100;
         if (b.gunType !== 'railgun') b.alive = false;
       }
@@ -1864,8 +1960,7 @@ function updateBoss(dt) {
   if (boss.hitFlash > 0) boss.hitFlash -= dt;
 
   // HP / tint
-  const totalHits = boss.headHits + boss.bodyHits + boss.legHits;
-  const hpPct = 1 - totalHits / (boss.headHP + boss.bodyHP + boss.legHP);
+  const hpPct = 1 - boss.hitsAccum / boss.bossHP;
   boss.hp = hpPct * 100;
   boss.redTint = clamp(1 - hpPct, 0, 1);
   GS.screenDistortion = boss.redTint * 0.5;
@@ -1983,8 +2078,8 @@ function updateBoss(dt) {
     const bsx = boss.x - GS.cameraX;
     if (rectsOverlap(p.attackHitbox, {x:bsx, y:boss.y, w:boss.w, h:boss.h})) {
       const ay = p.attackHitbox.y;
-      const zone = ay < boss.y + boss.h*0.38 ? 'head' : ay < boss.y + boss.h*0.68 ? 'body' : 'legs';
-      hitBossZone(boss, zone, bsx);
+      const zone = getBossZone(boss, ay);
+      hitBossZone(boss, zone, bsx, ay);
       p.attackHitbox = null; p.attackTimer = 0;
     }
   }
@@ -2005,24 +2100,19 @@ function bossFireOrb(boss, p, angleOffset) {
   boss.orbs.push({ x: boss.x + boss.w/2, y: boss.y + boss.h*0.4, vx: Math.cos(angle)*speed, vy: Math.sin(angle)*speed, r: 10, t: 0, alive: true });
 }
 
-function hitBossZone(boss, zone, bsx) {
+function hitBossZone(boss, zone, bsx, hitY) {
   GS.score += 500;
   sfxHit();
   boss.hitFlash = 0.18; boss.hitFlashZone = zone;
   GS.screenCracks.push({ x:rand(0.1,0.9), y:rand(0.1,0.9), life:8, maxLife:8, angle:rand(0,Math.PI), len:rand(50,200) });
-  if (zone === 'head') {
-    boss.headHits++;
-    spawnParticles(bsx+boss.w/2, boss.y+10, 12, {color:'#aaeeff',speedMin:100,speedMax:350,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7,upBias:100});
-    if (boss.headHits >= boss.headHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
-  } else if (zone === 'body') {
-    boss.bodyHits++;
-    spawnParticles(bsx+boss.w/2, boss.y+boss.h/2, 12, {color:'#ffffff',speedMin:80,speedMax:280,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7});
-    if (boss.bodyHits >= boss.bodyHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
+  const dmg = zone === 'umbra' ? BOSS_UMBRA_DMG : BOSS_PENUMBRA_DMG;
+  boss.hitsAccum += dmg;
+  if (zone === 'umbra') {
+    spawnParticles(bsx+boss.w/2, hitY, 14, {color:'#aaeeff',speedMin:100,speedMax:360,lifeMin:0.3,lifeMax:0.7,sizeMin:3,sizeMax:7,upBias:100});
   } else {
-    boss.legHits++;
-    spawnParticles(bsx+boss.w/2, boss.y+boss.h-10, 10, {color:'#aaeeff',speedMin:60,speedMax:200,lifeMin:0.2,lifeMax:0.5,sizeMin:2,sizeMax:5});
-    if (boss.legHits >= boss.legHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
+    spawnParticles(bsx+boss.w/2, hitY, 8,  {color:'#ffffff',speedMin:70,speedMax:250,lifeMin:0.2,lifeMax:0.6,sizeMin:2,sizeMax:6});
   }
+  if (boss.hitsAccum >= boss.bossHP) { boss.alive=false; boss.dying=true; sfxBossDeath(); }
   updateHUD();
 }
 
@@ -3058,6 +3148,7 @@ function renderBoss() {
   const boss = GS.boss;
   const sx = boss.x - GS.cameraX;
   const t = boss.t;
+  const pal = GS.world.palette;
 
   ctx.save();
 
@@ -3080,46 +3171,22 @@ function renderBoss() {
     ctx.restore();
   }
 
-  // Creeper sprite body
   const bw = boss.w, bh = boss.h;
   const bobY = boss.onGround ? Math.sin(t*3.2)*2 : 0;
-  const cx2 = sx + bw/2;
   const by = boss.y + bobY;
   const isFlash = boss.hitFlash > 0;
 
-  const pal = GS.world.palette;
-  if (!GS._bossCreeperSprite || GS._bossCreeperPalKey !== pal.accent) {
-    GS._bossCreeperSprite = buildCreeperSprite(pal);
-    GS._bossCreeperPalKey = pal.accent;
-  }
-  ctx.save();
-  ctx.imageSmoothingEnabled = false;
-  if (isFlash) {
-    ctx.globalCompositeOperation = 'source-over';
-    ctx.drawImage(GS._bossCreeperSprite, sx, by, bw, bh);
-    ctx.globalAlpha = (boss.hitFlash / 0.18) * 0.6;
-    ctx.fillStyle = '#ffffff';
-    ctx.fillRect(sx, by, bw, bh);
-    ctx.globalAlpha = 1;
-  } else {
-    ctx.drawImage(GS._bossCreeperSprite, sx, by, bw, bh);
-  }
-  ctx.restore();
+  drawCartoonBoss(ctx, sx, by, bw, bh, pal, t, isFlash);
 
-  // HP pips
-  const pipZones = [
-    { hits:boss.headHits, hp:boss.headHP, y:by+bh*0.18, d:boss.headHits>=boss.headHP },
-    { hits:boss.bodyHits, hp:boss.bodyHP, y:by+bh*0.52, d:boss.bodyHits>=boss.bodyHP },
-    { hits:boss.legHits,  hp:boss.legHP,  y:by+bh*0.85, d:boss.legHits>=boss.legHP },
-  ];
-  for (const z of pipZones) {
-    for (let i = 0; i < z.hp; i++) {
-      const px2 = sx + boss.w + 10 + i*9;
-      ctx.beginPath(); ctx.arc(px2, z.y, 3, 0, Math.PI*2);
-      ctx.fillStyle = z.d ? 'rgba(255,255,255,0.15)' : i < z.hits ? 'rgba(100,200,255,0.9)' : 'rgba(255,255,255,0.7)';
-      ctx.fill();
-    }
-  }
+  // HP bar (single pool)
+  const hpRatio = Math.max(0, 1 - boss.hitsAccum / boss.bossHP);
+  const barW = bw + 20;
+  const barX = sx - 10;
+  const barY = by - 14;
+  ctx.fillStyle = 'rgba(0,0,0,0.55)';
+  ctx.fillRect(barX, barY, barW, 6);
+  ctx.fillStyle = hpRatio > 0.5 ? '#44ffaa' : hpRatio > 0.25 ? '#ffcc44' : '#ff4444';
+  ctx.fillRect(barX, barY, barW * hpRatio, 6);
 
   ctx.restore();
 }
@@ -3241,14 +3308,12 @@ function renderDimensionalRoom() {
     ctx.fillRect(0, 0, W, H);
     ctx.restore();
 
-    if (!GS._creeperSprite) GS._creeperSprite = buildCreeperSprite();
     // sit in upper-centre of arena, leaving bottom third clear for drops + door
     const ch = Math.floor(H * 0.35);
-    const cw = Math.floor(ch * (16 / 24));
+    const cw = Math.floor(ch * 0.59);
     ctx.save();
     ctx.globalAlpha = dr.creeperAlpha * 0.88;
-    ctx.imageSmoothingEnabled = false;
-    ctx.drawImage(GS._creeperSprite, W/2 - cw/2, H * 0.12, cw, ch);
+    drawCartoonBoss(ctx, W/2 - cw/2, H * 0.12, cw, ch, pal, GS.levelTimer, false);
     ctx.restore();
   }
 
