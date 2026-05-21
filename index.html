@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.0';
+const VERSION = '1.14.1';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1543,8 +1543,8 @@ function updateBullets(dt) {
     b.age += dt;
     if (b.age > 4) { b.alive = false; continue; }
 
-    // Particle blaster range cap: 30% of screen width (not in dim room — bounded arena)
-    if (b.gunType === 'particle_blaster' && GS.state !== 'dimensional' && Math.abs(b.wx - b.startWx) > W * 0.3) {
+    // Particle blaster range cap: 30% of screen width (not in bounded arenas)
+    if (b.gunType === 'particle_blaster' && GS.state !== 'dimensional' && GS.state !== 'boss' && Math.abs(b.wx - b.startWx) > W * 0.3) {
       const sx = b.wx - GS.cameraX;
       spawnParticles(sx, b.y, 10, {color:GLITTER[randInt(0,GLITTER.length-1)],speedMin:25,speedMax:110,lifeMin:0.1,lifeMax:0.35,sizeMin:1,sizeMax:4,upBias:0});
       b.alive = false; continue;
