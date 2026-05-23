@@ -428,7 +428,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.5';
+const VERSION = '1.14.6';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1453,7 +1453,7 @@ function fireGun() {
   const def = GUN_DEFS[p.gun.type];
   if (p.gunCooldown > 0) return;
   if (p.gun.ammo <= 0) { p.gun = null; return; }
-  p.gunCooldown = def.cooldown;
+  p.gunCooldown = (p.gun.type === 'homing_spread' && GS.state === 'dimensional') ? 0.15 : def.cooldown;
   if (p.gun.ammo !== Infinity) p.gun.ammo--;
 
   const dimOffset = GS.state === 'dimensional' ? GS.cameraX : 0;
@@ -1553,10 +1553,20 @@ function updateBullets(dt) {
       b.alive = false; continue;
     }
 
-    // Homing: steer toward nearest enemy, or boss when no enemies present
+    // Homing: steer toward nearest enemy, dim-room enemy, or boss
     if (b.gunType === 'homing_spread') {
       let htx = null, hty = null;
-      if (GS.enemies.length > 0) {
+      if (GS.state === 'dimensional' && GS.dimRoom.active) {
+        // dim-room enemies are in screen space; bullet screen-x = b.wx - GS.cameraX
+        const bsx = b.wx - GS.cameraX;
+        let nearest = null, nd = Infinity;
+        for (const e of GS.dimRoom.enemies) {
+          if (!e.alive) continue;
+          const d = Math.hypot(e.x + e.w/2 - bsx, e.y + e.h/2 - b.y);
+          if (d < nd) { nd = d; nearest = e; }
+        }
+        if (nearest) { htx = (nearest.x + nearest.w/2) - bsx; hty = (nearest.y + nearest.h/2) - b.y; }
+      } else if (GS.enemies.length > 0) {
         let nearest = null, nd = Infinity;
         for (const e of GS.enemies) {
           const d = Math.hypot(e.x - b.wx, e.y - b.y);
@@ -1569,8 +1579,8 @@ function updateBullets(dt) {
       }
       if (htx !== null) {
         const len = Math.hypot(htx, hty) || 1;
-        b.vx = lerp(b.vx, (htx / len) * BULLET_SPEED, 0.06);
-        b.vy = lerp(b.vy, (hty / len) * BULLET_SPEED, 0.06);
+        b.vx = lerp(b.vx, (htx / len) * BULLET_SPEED, 0.1);
+        b.vy = lerp(b.vy, (hty / len) * BULLET_SPEED, 0.1);
       }
     }
 
@@ -3605,16 +3615,10 @@ function renderMonumentalText() {
 }
 
 // ── Start / Restart ────────────────────────────
-function requestFS() {
-  const el = document.documentElement;
-  if (el.requestFullscreen) el.requestFullscreen().catch(() => {});
-  else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
-}
 document.addEventListener('fullscreenchange', resize);
 document.addEventListener('webkitfullscreenchange', resize);
 
 function doStart() {
-  requestFS();
   stopTitleAnim();
   initAudio();
   document.body.classList.remove('at-title');
@@ -3634,8 +3638,19 @@ function doRestart() {
   lastTime = performance.now();
   requestAnimationFrame(gameLoop);
 }
-document.getElementById('start-btn').addEventListener('click', doStart);
-document.getElementById('start-btn').addEventListener('touchend', e => { e.preventDefault(); doStart(); }, {passive: false});
+document.getElementById('start-btn').addEventListener('click', e => {
+  const b = document.body;
+  if (b.requestFullscreen) b.requestFullscreen().catch(() => {});
+  else if (b.webkitRequestFullscreen) b.webkitRequestFullscreen();
+  doStart();
+});
+document.getElementById('start-btn').addEventListener('touchend', e => {
+  e.preventDefault();
+  const b = document.body;
+  if (b.requestFullscreen) b.requestFullscreen().catch(() => {});
+  else if (b.webkitRequestFullscreen) b.webkitRequestFullscreen();
+  doStart();
+}, {passive: false});
 document.getElementById('restart-btn').addEventListener('click', doRestart);
 document.getElementById('restart-btn').addEventListener('touchend', e => { e.preventDefault(); doRestart(); }, {passive: false});
 
