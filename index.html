@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.1';
+const VERSION = '1.14.2';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1033,6 +1033,7 @@ function generateLevel() {
   GS.dimRoom.active = false;
   GS.worldReveal = 0;
   GS.worldNameFadeT = 0;
+  GS.enemySpawnTimer = 0;
 
   // New world every level
   GS.world = generateWorld();
