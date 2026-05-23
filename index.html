@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.3';
+const VERSION = '1.14.4';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -3606,6 +3606,9 @@ function renderMonumentalText() {
 function doStart() {
   stopTitleAnim();
   initAudio();
+  const el = document.documentElement;
+  if (el.requestFullscreen) el.requestFullscreen();
+  else if (el.webkitRequestFullscreen) el.webkitRequestFullscreen();
   document.body.classList.remove('at-title');
   document.getElementById('title-screen').classList.add('hidden');
   resetGame();
