@@ -426,7 +426,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.2';
+const VERSION = '1.14.3';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -1551,18 +1551,24 @@ function updateBullets(dt) {
       b.alive = false; continue;
     }
 
-    // Homing: steer toward nearest enemy
-    if (b.gunType === 'homing_spread' && GS.enemies.length > 0) {
-      let nearest = null, nd = Infinity;
-      for (const e of GS.enemies) {
-        const d = Math.hypot(e.x - b.wx, e.y - b.y);
-        if (d < nd) { nd = d; nearest = e; }
+    // Homing: steer toward nearest enemy, or boss when no enemies present
+    if (b.gunType === 'homing_spread') {
+      let htx = null, hty = null;
+      if (GS.enemies.length > 0) {
+        let nearest = null, nd = Infinity;
+        for (const e of GS.enemies) {
+          const d = Math.hypot(e.x - b.wx, e.y - b.y);
+          if (d < nd) { nd = d; nearest = e; }
+        }
+        if (nearest) { htx = nearest.x - b.wx; hty = nearest.y - b.y; }
+      } else if (GS.boss && GS.boss.alive && !GS.boss.dying) {
+        htx = GS.boss.x + GS.boss.w / 2 - b.wx;
+        hty = GS.boss.y + GS.boss.h / 2 - b.y;
       }
-      if (nearest) {
-        const tx = nearest.x - b.wx, ty = nearest.y - b.y;
-        const len = Math.hypot(tx, ty) || 1;
-        b.vx = lerp(b.vx, (tx/len) * BULLET_SPEED, 0.06);
-        b.vy = lerp(b.vy, (ty/len) * BULLET_SPEED, 0.06);
+      if (htx !== null) {
+        const len = Math.hypot(htx, hty) || 1;
+        b.vx = lerp(b.vx, (htx / len) * BULLET_SPEED, 0.06);
+        b.vy = lerp(b.vy, (hty / len) * BULLET_SPEED, 0.06);
       }
     }
 
@@ -2421,7 +2427,7 @@ function applyDimDrop(drop) {
   const p = GS.player;
   if (drop.category === 'gun') {
     const def = GUN_DEFS[drop.type];
-    p.gun = { type: drop.type, ammo: def.ammo };
+    p.gun = { type: drop.type, ammo: Infinity };
     GS.announceText = def.label;
   } else if (drop.type === 'heart') {
     p.hearts = Math.min(p.hearts + 1, p.maxHearts);
