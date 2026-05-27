@@ -428,7 +428,7 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.14.6';
+const VERSION = '1.15.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
@@ -612,6 +612,61 @@ function sfxBeam() {
 function sfxDimEnter() {
   sfx(1200, 0.3, 'sine', 0.15);
   setTimeout(()=>sfx(900,0.3,'sine',0.1),100);
+}
+function sfxPickup() {
+  sfx(880, 0.08, 'sine', 0.1);
+  setTimeout(()=>sfx(1320,0.12,'sine',0.1),60);
+}
+
+// ── Music System ──────────────────────────────
+let musicTimer = null;
+let musicNextTime = 0;
+let musicStep = 0;
+const MUSIC_STEP_SEC = (60 / 140) / 4; // 16th note at 140 BPM
+// C minor pentatonic: C5 Eb5 F5 G5 Bb5 | bass: C3 Eb3 F3 G3
+const MUSIC_MELODY = [784,  0, 932, 784, 622, 698, 784,   0, 523, 622, 698, 622, 784,   0, 932,   0];
+const MUSIC_BASS   = [131,  0,   0,   0, 175,   0,   0,   0, 131,   0,   0,   0, 196,   0,   0,   0];
+const MUSIC_KICK   = [  1,  0,   0,   0,   0,   0,   0,   0,   1,   0,   0,   0,   0,   0,   0,   0];
+const MUSIC_HAT    = [  0,  0,   1,   0,   0,   0,   1,   0,   0,   0,   1,   0,   0,   0,   1,   0];
+
+function musicNote(freq, startT, dur, type, vol) {
+  if (!audioCtx || !freq) return;
+  try {
+    const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+    o.type = type; o.frequency.value = freq;
+    g.gain.setValueAtTime(vol, startT);
+    g.gain.exponentialRampToValueAtTime(0.001, startT + dur);
+    o.connect(g).connect(audioCtx.destination);
+    o.start(startT); o.stop(startT + dur);
+  } catch(e) {}
+}
+
+function musicScheduleStep(t, s) {
+  const i = s % 16;
+  if (MUSIC_MELODY[i]) musicNote(MUSIC_MELODY[i], t, MUSIC_STEP_SEC * 0.65, 'square',   0.035);
+  if (MUSIC_BASS[i])   musicNote(MUSIC_BASS[i],   t, MUSIC_STEP_SEC * 3.2,  'triangle', 0.055);
+  if (MUSIC_KICK[i]) { musicNote(100, t, 0.10, 'sine', 0.10); musicNote(55, t+0.03, 0.08, 'sine', 0.07); }
+  if (MUSIC_HAT[i])    musicNote(3800, t, 0.035, 'square', 0.012);
+}
+
+function musicTick() {
+  if (!audioCtx) return;
+  while (musicNextTime < audioCtx.currentTime + 0.15) {
+    musicScheduleStep(musicNextTime, musicStep++);
+    musicNextTime += MUSIC_STEP_SEC;
+  }
+  musicTimer = setTimeout(musicTick, 40);
+}
+
+function startMusic() {
+  if (musicTimer) return;
+  if (!audioCtx) return;
+  musicStep = 0; musicNextTime = audioCtx.currentTime + 0.05;
+  musicTick();
+}
+
+function stopMusic() {
+  if (musicTimer) { clearTimeout(musicTimer); musicTimer = null; }
 }
 
 // ── Utils ─────────────────────────────────────
@@ -1432,14 +1487,67 @@ function updateCamera(dt) {
 
 // ── Gun System ─────────────────────────────────
 function sfxShoot(type) {
-  const ctx2 = new (window.AudioContext || window.webkitAudioContext)();
-  const o = ctx2.createOscillator();
-  const g = ctx2.createGain();
-  o.connect(g); g.connect(ctx2.destination);
-  if (type === 'particle_blaster') { o.frequency.setValueAtTime(1400,0); o.frequency.exponentialRampToValueAtTime(700,0.06); g.gain.setValueAtTime(0.05,0); g.gain.exponentialRampToValueAtTime(0.001,0.09); o.type = 'sine'; }
-  else if (type === 'railgun')     { o.frequency.setValueAtTime(220,0); o.frequency.exponentialRampToValueAtTime(880,0.05); g.gain.setValueAtTime(0.3,0); g.gain.exponentialRampToValueAtTime(0.001,0.25); o.type = 'sawtooth'; }
-  else                             { o.frequency.setValueAtTime(440,0); o.frequency.exponentialRampToValueAtTime(110,0.12); g.gain.setValueAtTime(0.12,0); g.gain.exponentialRampToValueAtTime(0.001,0.15); o.type = 'sawtooth'; }
-  o.start(); o.stop(ctx2.currentTime + 0.3);
+  if (!audioCtx) return;
+  const t = audioCtx.currentTime;
+  try {
+    if (type === 'particle_blaster') {
+      // Zippy pew — quick sine sweep down
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(1500, t); o.frequency.exponentialRampToValueAtTime(650, t + 0.07);
+      g.gain.setValueAtTime(0.07, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.09);
+      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.1);
+
+    } else if (type === 'railgun') {
+      // Dramatic rising laser charge → high crack
+      const o1 = audioCtx.createOscillator(), g1 = audioCtx.createGain();
+      o1.type = 'sawtooth';
+      o1.frequency.setValueAtTime(70, t); o1.frequency.exponentialRampToValueAtTime(2800, t + 0.20);
+      g1.gain.setValueAtTime(0.22, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
+      o1.connect(g1).connect(audioCtx.destination); o1.start(t); o1.stop(t + 0.35);
+      // High crack overtone that kicks in at peak
+      const o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+      o2.type = 'square';
+      o2.frequency.setValueAtTime(3600, t + 0.18); o2.frequency.exponentialRampToValueAtTime(300, t + 0.45);
+      g2.gain.setValueAtTime(0, t); g2.gain.setValueAtTime(0.14, t + 0.18); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.45);
+      o2.connect(g2).connect(audioCtx.destination); o2.start(t); o2.stop(t + 0.5);
+
+    } else if (type === 'scatter') {
+      // Shotgun blast — low boom + mid crunch simultaneously
+      const o1 = audioCtx.createOscillator(), g1 = audioCtx.createGain();
+      o1.type = 'triangle';
+      o1.frequency.setValueAtTime(240, t); o1.frequency.exponentialRampToValueAtTime(50, t + 0.20);
+      g1.gain.setValueAtTime(0.20, t); g1.gain.exponentialRampToValueAtTime(0.001, t + 0.22);
+      o1.connect(g1).connect(audioCtx.destination); o1.start(t); o1.stop(t + 0.25);
+      const o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+      o2.type = 'sawtooth';
+      o2.frequency.setValueAtTime(520, t); o2.frequency.exponentialRampToValueAtTime(110, t + 0.11);
+      g2.gain.setValueAtTime(0.13, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.13);
+      o2.connect(g2).connect(audioCtx.destination); o2.start(t); o2.stop(t + 0.15);
+
+    } else if (type === 'homing_spread') {
+      // Warbling seeker tone — wobbles then falls off
+      const o = audioCtx.createOscillator(), g = audioCtx.createGain();
+      o.type = 'sine';
+      o.frequency.setValueAtTime(560, t);
+      o.frequency.setValueAtTime(720, t + 0.04);
+      o.frequency.setValueAtTime(560, t + 0.08);
+      o.frequency.setValueAtTime(720, t + 0.12);
+      o.frequency.exponentialRampToValueAtTime(280, t + 0.28);
+      g.gain.setValueAtTime(0.10, t); g.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
+      o.connect(g).connect(audioCtx.destination); o.start(t); o.stop(t + 0.32);
+      // Slightly detuned twin — creates beating/phasing effect
+      const o2 = audioCtx.createOscillator(), g2 = audioCtx.createGain();
+      o2.type = 'sine';
+      o2.frequency.setValueAtTime(585, t);
+      o2.frequency.setValueAtTime(750, t + 0.04);
+      o2.frequency.setValueAtTime(585, t + 0.08);
+      o2.frequency.setValueAtTime(750, t + 0.12);
+      o2.frequency.exponentialRampToValueAtTime(295, t + 0.28);
+      g2.gain.setValueAtTime(0.06, t); g2.gain.exponentialRampToValueAtTime(0.001, t + 0.30);
+      o2.connect(g2).connect(audioCtx.destination); o2.start(t); o2.stop(t + 0.32);
+    }
+  } catch(e) {}
 }
 
 function spawnBullet(wx, y, vx, vy, gunType, bounces) {
@@ -1674,6 +1782,7 @@ function updateWeaponPickups(dt) {
       p.gunCooldown = 0;
       GS.announceText = GUN_DEFS[pu.type].label;
       GS.announceAlpha = 1.5;
+      sfxPickup();
     }
   }
 }
@@ -2478,6 +2587,7 @@ function checkLevelComplete() {
 // ── Game Over ─────────────────────────────────
 function triggerGameOver() {
   GS.state = 'gameover';
+  stopMusic();
   document.getElementById('touch-controls').classList.remove('tc-active');
   document.getElementById('final-score').textContent = GS.score.toLocaleString();
   document.getElementById('gameover-screen').classList.remove('hidden');
@@ -3627,6 +3737,7 @@ function doStart() {
   GS.state = 'playing';
   running = true;
   lastTime = performance.now();
+  startMusic();
   requestAnimationFrame(gameLoop);
 }
 function doRestart() {
@@ -3636,6 +3747,7 @@ function doRestart() {
   GS.state = 'playing';
   running = true;
   lastTime = performance.now();
+  stopMusic(); startMusic();
   requestAnimationFrame(gameLoop);
 }
 document.getElementById('start-btn').addEventListener('click', e => {
