@@ -12,6 +12,7 @@
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html, body {
+    width: 100%; height: 100%;
     touch-action: none;
     user-select: none;
     -webkit-user-select: none;
@@ -19,10 +20,21 @@
     overscroll-behavior: none;
   }
   body {
-    background: #000;
+    background: #070710;
     overflow: hidden;
     font-family: 'Chakra Petch', sans-serif;
     color: #e8e8ec;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+  }
+  #game-window {
+    position: relative;
+    --gw: min(1280px, 100vw, calc(100vh * 16 / 9));
+    width: var(--gw);
+    height: calc(var(--gw) * 9 / 16);
+    overflow: hidden;
+    box-shadow: 0 0 80px rgba(0,0,0,0.9);
   }
   #gameCanvas {
     display: block;
@@ -30,7 +42,7 @@
   }
   body.at-title #hud { visibility: hidden; }
   #ui {
-    position: fixed;
+    position: absolute;
     inset: 0;
     pointer-events: none;
     z-index: 10;
@@ -98,7 +110,7 @@
   }
   /* Overlay screens */
   .overlay {
-    position: fixed;
+    position: absolute;
     inset: 0;
     display: flex;
     flex-direction: column;
@@ -337,12 +349,14 @@
     border: 2px solid rgba(255,255,255,0.35);
     border-radius: 50%;
   }
-  @media (orientation: portrait) {
+  @media (orientation: portrait) and (hover: none) and (pointer: coarse) {
     #orient-warn { display: flex; }
   }
 </style>
 </head>
 <body class="at-title">
+
+<div id="game-window">
 
 <canvas id="gameCanvas"></canvas>
 
@@ -380,7 +394,7 @@
 
 </div>
 
-<!-- Overlays outside #ui so pointer-events work on mobile -->
+<!-- Overlays inside game-window so they cover only the game area -->
 <div class="overlay" id="title-screen">
   <p class="sub">A World That Has Never Existed Before</p>
   <button class="start-btn" id="start-btn">ENTER</button>
@@ -392,7 +406,9 @@
   <button class="start-btn" id="restart-btn">AGAIN</button>
 </div>
 
-<!-- Touch controls -->
+</div><!-- end #game-window -->
+
+<!-- Touch controls (fixed to viewport for mobile) -->
 <div id="touch-controls">
   <!-- Left: movement -->
   <div class="tc-cluster">
@@ -428,18 +444,21 @@
 //  MALBEC — v1.6.0
 //  Soluniplabs | Built from GDD v1.0
 // ─────────────────────────────────────────────
-const VERSION = '1.15.0';
+const VERSION = '1.16.0';
 
 const canvas = document.getElementById('gameCanvas');
 const ctx = canvas.getContext('2d');
 ctx.imageSmoothingEnabled = false;
+const gameWindow = document.getElementById('game-window');
 
 // ── Resize ──────────────────────────────────
 function resize() {
-  canvas.width = window.innerWidth;
-  canvas.height = window.innerHeight;
-  canvas.style.width = window.innerWidth + 'px';
-  canvas.style.height = window.innerHeight + 'px';
+  const W = gameWindow.clientWidth;
+  const H = gameWindow.clientHeight;
+  canvas.width = W;
+  canvas.height = H;
+  canvas.style.width = W + 'px';
+  canvas.style.height = H + 'px';
 }
 resize();
 window.addEventListener('resize', resize);
