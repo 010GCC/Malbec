@@ -15,15 +15,28 @@ html,body{margin:0;background:#070710;height:100%;display:flex;align-items:cente
 <body>
 <div id="b">LOADING MALBEC…</div>
 <script>
+/**
+ * Malbec index bootstrap (v1.16.1)
+ * Full ~135KB single-file game is pinned from main and patched for mobile
+ * fullscreen (100dvh / safe-area / visualViewport). GitHub Contents API
+ * upload size limits prevent inlining the whole blob in one MCP commit —
+ * same pattern as Cave Rush. Overlay CSS/JS reinforce the patches.
+ *
+ * Pin: 1ea0da4e2062f56a9e64dce4be31d71c4b849017 (main HEAD at PR time)
+ */
 (async function () {
-  var SOURCE = 'https://raw.githubusercontent.com/010GCC/Malbec/1ea0da4e2062f56a9e64dce4be31d71c4b849017/index.html';
-  try {
-    var res = await fetch(SOURCE, { cache: 'no-store' });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    var html = await res.text();
+  var PIN = '1ea0da4e2062f56a9e64dce4be31d71c4b849017';
+  var urls = [
+    'https://cdn.jsdelivr.net/gh/010GCC/Malbec@' + PIN + '/index.html',
+    'https://raw.githubusercontent.com/010GCC/Malbec/' + PIN + '/index.html'
+  ];
+  function applyMobilePatches(html) {
     html = html.replace("const VERSION = '1.16.0';", "const VERSION = '1.16.1';");
     html = html.replace('//  MALBEC — v1.6.0', '//  MALBEC — v1.16.1');
-    // Mobile-first layout: fill viewport instead of 16:9 letterbox
+    html = html.replace(
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">',
+      '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">\n<meta name="mobile-web-app-capable" content="yes">'
+    );
     html = html.replace(
       '  html, body {\n    width: 100%; height: 100%;\n    touch-action: none;\n    user-select: none;\n    -webkit-user-select: none;\n    -webkit-touch-callout: none;\n    overscroll-behavior: none;\n  }\n  body {\n    background: #070710;\n    overflow: hidden;\n    font-family: \'Chakra Petch\', sans-serif;\n    color: #e8e8ec;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n  }\n  #game-window {\n    position: relative;\n    --gw: min(1280px, 100vw, calc(100vh * 16 / 9));\n    width: var(--gw);\n    height: calc(var(--gw) * 9 / 16);\n    overflow: hidden;\n    box-shadow: 0 0 80px rgba(0,0,0,0.9);\n  }\n  #gameCanvas {\n    display: block;\n    pointer-events: none;\n  }',
       '  html, body {\n    width: 100%;\n    height: 100%;\n    height: 100dvh;\n    max-height: 100dvh;\n    touch-action: none;\n    user-select: none;\n    -webkit-user-select: none;\n    -webkit-touch-callout: none;\n    overscroll-behavior: none;\n  }\n  body {\n    background: #070710;\n    overflow: hidden;\n    font-family: \'Chakra Petch\', sans-serif;\n    color: #e8e8ec;\n    display: flex;\n    align-items: center;\n    justify-content: center;\n    padding: env(safe-area-inset-top, 0px) env(safe-area-inset-right, 0px) env(safe-area-inset-bottom, 0px) env(safe-area-inset-left, 0px);\n  }\n  #game-window {\n    position: relative;\n    width: 100%;\n    height: 100%;\n    max-width: 100vw;\n    max-height: 100dvh;\n    overflow: hidden;\n    box-shadow: none;\n  }\n  @media (hover: hover) and (pointer: fine) and (min-width: 900px) {\n    #game-window {\n      --gw: min(1280px, 100vw, calc(100dvh * 16 / 9));\n      width: var(--gw);\n      height: calc(var(--gw) * 9 / 16);\n      max-height: none;\n      box-shadow: 0 0 80px rgba(0,0,0,0.9);\n    }\n  }\n  #gameCanvas {\n    display: block;\n    width: 100%;\n    height: 100%;\n    pointer-events: none;\n  }'
@@ -44,18 +57,25 @@ html,body{margin:0;background:#070710;height:100%;display:flex;align-items:cente
       "function resize() {\n  const W = gameWindow.clientWidth;\n  const H = gameWindow.clientHeight;\n  canvas.width = W;\n  canvas.height = H;\n  canvas.style.width = W + 'px';\n  canvas.style.height = H + 'px';\n}\nresize();\nwindow.addEventListener('resize', resize);",
       "function resize() {\n  const W = Math.max(1, gameWindow.clientWidth | 0);\n  const H = Math.max(1, gameWindow.clientHeight | 0);\n  if (canvas.width !== W || canvas.height !== H) {\n    canvas.width = W;\n    canvas.height = H;\n  }\n  canvas.style.width = W + 'px';\n  canvas.style.height = H + 'px';\n}\nresize();\nwindow.addEventListener('resize', resize);\nwindow.addEventListener('orientationchange', () => setTimeout(resize, 50));\nif (window.visualViewport) {\n  window.visualViewport.addEventListener('resize', resize);\n}"
     );
-    html = html.replace(
-      '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">',
-      '<meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">\n<meta name="mobile-web-app-capable" content="yes">'
-    );
     html = html.replace('</head>', '<link rel="stylesheet" href="mobile-fullscreen.css"></head>');
     html = html.replace('</body>', '<script src="mobile-fullscreen.js"><\\/script></body>');
-    document.open();
-    document.write(html);
-    document.close();
-  } catch (err) {
-    document.getElementById('b').textContent = 'Failed to load game: ' + err;
+    return html;
   }
+  var lastErr = null;
+  for (var i = 0; i < urls.length; i++) {
+    try {
+      var res = await fetch(urls[i], { cache: 'no-store' });
+      if (!res.ok) throw new Error('HTTP ' + res.status + ' from ' + urls[i]);
+      var html = applyMobilePatches(await res.text());
+      document.open();
+      document.write(html);
+      document.close();
+      return;
+    } catch (err) {
+      lastErr = err;
+    }
+  }
+  document.getElementById('b').textContent = 'Failed to load game: ' + lastErr;
 })();
 </script>
 </body>
